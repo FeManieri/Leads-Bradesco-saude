@@ -765,12 +765,21 @@
         "functionCode": "// Processa resposta da OpenAI (robusto p/ JSON)\nlet resposta = {};\ntry {\n  resposta = JSON.parse($json.choices[0].message.content);\n} catch (e) {\n  const raw = $json.choices[0].message.content || \"\";\n  const first = raw.indexOf(\"{\");\n  const last = raw.lastIndexOf(\"}\");\n  if (first >= 0 && last > first) {\n    try { resposta = JSON.parse(raw.slice(first, last + 1)); } catch(e2) {}\n  }\n}\nif (!resposta || typeof resposta !== \"object\" || !resposta.mensagem_cliente) {\n  resposta = {\n    mensagem_cliente: \"Desculpe, tive um problema ao interpretar. Vou encaminhar um consultor para te ajudar rapidinho, tudo bem?\",\n    classificacao: \"ANALISE_HUMANA\",\n    score: 0,\n    perguntas_feitas: [],\n    precisa_analise_humana: true,\n    motivo_analise: \"Falha de parsing\"\n  };\n}\n\n// Tempo de digitação humano (3–6s)\nconst palavras = String(resposta.mensagem_cliente || \"\").split(/\\s+/).filter(Boolean).length;\nconst base = Math.max(1200, Math.min(6000, palavras * 120)); // 120ms/palavra\nconst jitter = Math.floor(Math.random() * 600);              // 0–600ms extra\nconst tempoDigitacao = Math.min(base + jitter, 6000);\n\nreturn {\n  ...$json,\n  mensagem_mariana: resposta.mensagem_cliente,\n  classificacao_atual: resposta.classificacao,\n  score_atual: resposta.score,\n  perguntas_feitas: resposta.perguntas_feitas,\n  precisa_humano: resposta.precisa_analise_humana,\n  motivo_analise: resposta.motivo_analise || \"\",\n  tempo_digitacao: tempoDigitacao\n};"
       },
       "id": "10",
-      "name"      git add bradesco.json.vscode.json
-      git commit -m "Corrige estrutura e erros de sintaxe do JSON"
-      git push "Processar Resposta OpenAI",
+      "name": "Processar Resposta OpenAI",
       "type": "n8n-nodes-base.code",
-        "position": [1650, 300],
-        "typeVersion": 2
+      "position": [1650, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "amount": "={{Math.ceil($json.tempo_digitacao / 1000)}}",
+        "unit": "seconds"
+      },
+      "id": "11",
+      "name": "Simular Tempo Digitação",
+      "type": "n8n-nodes-base.wait",
+      "position": [1850, 300],
+      "typeVersion": 1
     }
   ],
   "connections": {
