@@ -1,0 +1,730 @@
+{
+  "name": "🤖 Reengajamento Bradesco - Otimizado",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "812b3268-af5e-4faf-b11f-1fa41c2d6d2d",
+      "name": "⏰ Agendamento Reengajamento",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "1bGuTWcNCMjTed91deAZo8eGwy38tqWh8C7rU6PPG27M",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads_Brutos",
+          "mode": "name"
+        },
+        "options": {
+          "range": "A:Z",
+          "includeEmptyCells": false
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Status",
+              "lookupValue": "Aguardando_5min"
+            },
+            {
+              "lookupColumn": "Ultima_Resposta_Cliente",
+              "lookupValue": "",
+              "condition": "isEmpty"
+            },
+            {
+              "lookupColumn": "Tentativas_Reengajamento",
+              "lookupValue": "3",
+              "condition": "smaller"
+            }
+          ]
+        }
+      },
+      "id": "663a32b1-539f-4832-85f6-7e48c9e066b6",
+      "name": "📊 Buscar Leads Pendentes",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        460,
+        300
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZRCcorwTkMjhn6EC",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// FILTRAR LEADS PARA REENGAJAMENTO - HORÁRIO COMERCIAL\n// ========================================\n// Filtra leads respeitando horário comercial (8h-18h, seg-sex)\n\nconst dados = $input.all();\nconst leadsParaReengajamento = [];\n\n// ========== VERIFICAÇÃO DE HORÁRIO COMERCIAL ==========\nconst agora = new Date();\nconst hora = agora.getHours();\nconst dia = agora.getDay(); // 0=domingo, 1=segunda, ..., 6=sábado\n\n// Horário comercial: 8h às 18h, segunda a sexta\nconst HORARIO_COMERCIAL = {\n  hora_inicio: 8,\n  hora_fim: 18,\n  dias_semana: [1, 2, 3, 4, 5] // Segunda a sexta\n};\n\n// Verificar se está no horário comercial\nconst estaNoHorarioComercial = (\n  hora >= HORARIO_COMERCIAL.hora_inicio &&\n  hora < HORARIO_COMERCIAL.hora_fim &&\n  HORARIO_COMERCIAL.dias_semana.includes(dia)\n);\n\nconsole.log(`Horário atual: ${hora}h, Dia: ${dia} (0=dom, 1=seg...)`);\nconsole.log(`Horário comercial: ${estaNoHorarioComercial ? 'SIM' : 'NÃO'}`);\n\n// Se NÃO está no horário comercial, não processa nenhum lead\nif (!estaNoHorarioComercial) {\n  console.log('⏰ Fora do horário comercial - aguardando próximo horário');\n  return [];\n}\n\n// ========== CONFIGURAÇÕES DE REENGAJAMENTO ==========\nconst CONFIG_REENGAJAMENTO = {\n  status_para_reengajamento: ['Aguardando_5min'],\n  max_tentativas: 3,\n  intervalo_minutos: 5 // Intervalo mínimo entre tentativas\n};\n\n// Função para verificar se pode reengajar\nfunction podeReengajar(lead) {\n  // Verificar se tem dados básicos\n  if (!lead.Lead_ID || !lead['Telefone com DDD']) {\n    return false;\n  }\n  \n  // Verificar se cliente já respondeu\n  if (lead.Ultima_Resposta_Cliente && lead.Ultima_Resposta_Cliente.trim() !== '') {\n    return false;\n  }\n  \n  // Verificar status\n  if (!CONFIG_REENGAJAMENTO.status_para_reengajamento.includes(lead.Status)) {\n    return false;\n  }\n  \n  // Verificar tentativas\n  const tentativas = parseInt(lead.Tentativas_Reengajamento || 0);\n  if (tentativas >= CONFIG_REENGAJAMENTO.max_tentativas) {\n    return false;\n  }\n  \n  // Verificar Proxima_Acao_At\n  if (lead.Proxima_Acao_At) {\n    const proximaAcao = new Date(lead.Proxima_Acao_At);\n    \n    if (agora < proximaAcao) {\n      return false; // Ainda não é hora\n    }\n  }\n  \n  // Verificar última tentativa\n  if (lead.Ultima_Tentativa_Reengajamento) {\n    const ultimaTentativa = new Date(lead.Ultima_Tentativa_Reengajamento);\n    const diferencaMinutos = (agora - ultimaTentativa) / (1000 * 60);\n    \n    if (diferencaMinutos < CONFIG_REENGAJAMENTO.intervalo_minutos) {\n      return false;\n    }\n  }\n  \n  return true;\n}\n\n// ========== PROCESSAR LEADS (APENAS NO HORÁRIO COMERCIAL) ==========\nfor (const item of dados) {\n  const lead = item.json;\n  \n  if (podeReengajar(lead)) {\n    leadsParaReengajamento.push({\n      ...lead,\n      motivo_reengajamento: 'Tempo_Esgotado_Horario_Comercial',\n      prioridade: lead.Score_Inicial || 0,\n      timestamp_filtro: agora.toISOString(),\n      horario_comercial: true,\n      hora_processamento: hora,\n      dia_processamento: dia,\n      filtros_aplicados: {\n        horario_comercial: true,\n        sem_resposta_cliente: true,\n        status_valido: true,\n        tentativas_ok: true,\n        tempo_ok: true\n      }\n    });\n  }\n}\n\n// Ordenar por prioridade (score mais alto primeiro)\nleadsParaReengajamento.sort((a, b) => (b.prioridade || 0) - (a.prioridade || 0));\n\nconsole.log(`✅ Leads filtrados para reengajamento: ${leadsParaReengajamento.length}`);\nconsole.log(`📊 Total leads processados: ${dados.length}`);\nconsole.log(`⏰ Horário: ${hora}h (comercial: 8h-18h)`);\n\nreturn leadsParaReengajamento.map(lead => ({ json: lead }));"
+      },
+      "id": "22fd0337-dfe9-48b4-91ce-64f8e689592c",
+      "name": "🔍 Filtrar Leads Reengajamento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// VARIAÇÕES DE MENSAGENS - REENGAJAMENTO\n// ========================================\n// Cria variações específicas para reengajamento\n\nconst dados = $input.all()[0].json;\n\n// Templates específicos para reengajamento\nconst templatesReengajamento = [\n  {\n    id: 'reeng_horario_1',\n    template: 'Bom dia {nome}! 🌅 Vi que você se interessou no Bradesco Saúde. Posso ajudar?',\n    tom: 'matinal'\n  },\n  {\n    id: 'reeng_horario_2',\n    template: 'Boa tarde {nome}! ☀️ Ainda estou disponível para tirar suas dúvidas sobre os planos.',\n    tom: 'vespertino'\n  },\n  {\n    id: 'reeng_1',\n    template: 'Oi {nome}, tudo bem? 💙 Vi que você se interessou no Bradesco Saúde. Posso tirar alguma dúvida?',\n    tom: 'amigavel'\n  },\n  {\n    id: 'reeng_2',\n    template: 'Olá {nome}, ainda estou por aqui! 😊 Posso preparar sua proposta, é super rápido.',\n    tom: 'profissional'\n  },\n  {\n    id: 'reeng_3',\n    template: 'Oi {nome}, que tal conversarmos sobre o melhor plano para você? 🎯',\n    tom: 'direto'\n  },\n  {\n    id: 'reeng_4',\n    template: 'Olá {nome}, vi seu interesse no Bradesco Saúde! 💙 Posso ajudar com alguma informação?',\n    tom: 'acolhedor'\n  },\n  {\n    id: 'reeng_5',\n    template: 'Oi {nome}, ainda estou disponível para te ajudar! 😊 Qual sua dúvida sobre os planos?',\n    tom: 'disponivel'\n  },\n  {\n    id: 'reeng_6',\n    template: 'Olá {nome}, tudo bem? 💙 Que tal finalizarmos sua cotação do Bradesco Saúde?',\n    tom: 'finalizacao'\n  }\n];\n\n// Função para escolher template baseado na tentativa\nfunction escolherTemplatePorTentativa(tentativas) {\n  // Primeira tentativa: mais amigável\n  if (tentativas === 1) {\n    const templatesAmigaveis = templatesReengajamento.filter(t => \n      ['amigavel', 'acolhedor', 'disponivel'].includes(t.tom)\n    );\n    const indice = Math.floor(Math.random() * templatesAmigaveis.length);\n    return templatesAmigaveis[indice];\n  }\n  \n  // Segunda tentativa: mais direto\n  if (tentativas === 2) {\n    const templatesDiretos = templatesReengajamento.filter(t => \n      ['profissional', 'direto'].includes(t.tom)\n    );\n    const indice = Math.floor(Math.random() * templatesDiretos.length);\n    return templatesDiretos[indice];\n  }\n  \n  // Terceira tentativa: mais focado em finalização\n  if (tentativas === 3) {\n    const templatesFinalizacao = templatesReengajamento.filter(t => \n      ['finalizacao', 'direto'].includes(t.tom)\n    );\n    const indice = Math.floor(Math.random() * templatesFinalizacao.length);\n    return templatesFinalizacao[indice];\n  }\n  \n  // Tentativas adicionais: aleatório\n  const indice = Math.floor(Math.random() * templatesReengajamento.length);\n  return templatesReengajamento[indice];\n}\n\n// Função para personalizar mensagem\nfunction personalizarMensagem(template, dados) {\n  let mensagem = template.template;\n  \n  // Substituir placeholders\n  mensagem = mensagem.replace(/{nome}/g, dados.Nome_Completo || 'Cliente');\n  mensagem = mensagem.replace(/{plano}/g, 'Bradesco Saúde');\n  \n  return mensagem;\n}\n\n// Escolher template\nconst tentativas = parseInt(dados.tentativa_atual || 1);\nconst templateEscolhido = escolherTemplatePorTentativa(tentativas);\n\n// Personalizar mensagem\nconst mensagemFinal = personalizarMensagem(templateEscolhido, dados);\n\n// Preparar resultado\nconst resultado = {\n  ...dados,\n  mensagem_reengajamento: mensagemFinal,\n  template_usado: templateEscolhido.id,\n  tom_mensagem: templateEscolhido.tom,\n  tentativa_reengajamento: tentativas,\n  timestamp_mensagem: new Date().toISOString()\n};\n\nconsole.log(`Mensagem reengajamento (${templateEscolhido.id}):`, mensagemFinal);\n\nreturn [resultado];"
+      },
+      "id": "288bfbc4-5aef-41ac-9f1b-b6cc17475879",
+      "name": "💬 Variações Mensagens Reengajamento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.evolutionApi.token}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ '55' + String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}\",\n  \"text\": \"{{$json.mensagem_reengajamento}}\"\n}",
+        "options": {}
+      },
+      "id": "f46fd472-6697-4cff-9444-71226cac5d19",
+      "name": "📱 Enviar WhatsApp Reengajamento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// CONTROLE DE FALHAS - REENGAJAMENTO\n// ========================================\n// Gerencia falhas específicas do reengajamento\n\nconst dados = $input.all()[0].json;\nconst erro = dados.error || null;\n\n// Função para classificar tipo de erro\nfunction classificarErro(erro) {\n  if (!erro) return 'sucesso';\n  \n  const mensagem = String(erro).toLowerCase();\n  \n  if (mensagem.includes('timeout') || mensagem.includes('time out')) {\n    return 'timeout';\n  } else if (mensagem.includes('network') || mensagem.includes('connection')) {\n    return 'rede';\n  } else if (mensagem.includes('auth') || mensagem.includes('unauthorized')) {\n    return 'autenticacao';\n  } else if (mensagem.includes('rate limit') || mensagem.includes('quota')) {\n    return 'limite';\n  } else if (mensagem.includes('invalid') || mensagem.includes('malformed')) {\n    return 'dados_invalidos';\n  } else {\n    return 'desconhecido';\n  }\n}\n\n// Função para determinar se deve reprocessar\nfunction deveReprocessar(tipoErro, tentativas) {\n  const maxTentativas = 3;\n  \n  if (tentativas >= maxTentativas) {\n    return false;\n  }\n  \n  // Erros que devem ser reprocessados\n  const errosReprocessaveis = ['timeout', 'rede', 'limite'];\n  return errosReprocessaveis.includes(tipoErro);\n}\n\n// Processar erro\nconst tipoErro = classificarErro(erro);\nconst tentativas = (dados.tentativas_erro_reengajamento || 0) + 1;\nconst deveReprocessarErro = deveReprocessar(tipoErro, tentativas);\n\n// Preparar log de erro\nconst logErro = {\n  timestamp: new Date().toISOString(),\n  lead_id: dados.Lead_ID || 'desconhecido',\n  tipo_erro: tipoErro,\n  mensagem_erro: String(erro || 'sucesso'),\n  tentativas: tentativas,\n  deve_reprocessar: deveReprocessarErro,\n  contexto: 'reengajamento',\n  dados_originais: {\n    nome: dados.Nome_Completo,\n    telefone: dados['Telefone com DDD'],\n    email: dados.Email\n  }\n};\n\n// Preparar resultado\nconst resultado = {\n  ...dados,\n  erro_processado: true,\n  tipo_erro: tipoErro,\n  tentativas_erro_reengajamento: tentativas,\n  deve_reprocessar: deveReprocessarErro,\n  log_erro_reengajamento: logErro,\n  status_final: deveReprocessarErro ? 'reprocessar' : (erro ? 'falha' : 'sucesso')\n};\n\n// Log para debug\nif (erro) {\n  console.error(`Erro reengajamento: ${tipoErro} (tentativa ${tentativas})`);\n  console.error('Log:', logErro);\n}\n\nreturn [resultado];"
+      },
+      "id": "9346ec1b-f922-419e-b367-578696033659",
+      "name": "🚨 Controle Falhas Reengajamento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1bGuTWcNCMjTed91deAZo8eGwy38tqWh8C7rU6PPG27M",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads_Brutos",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead_ID": "={{$json.Lead_ID}}",
+            "Tentativas_Reengajamento": "={{ ($json.Tentativas_Reengajamento || 0) + 1 }}",
+            "Ultima_Tentativa_Reengajamento": "={{ $now.toISO() }}",
+            "Status_Reengajamento": "={{ (($json.Tentativas_Reengajamento || 0) + 1) >= 3 ? 'finalizado' : 'em_andamento' }}",
+            "Template_Usado": "={{ $json.template_usado }}",
+            "Tom_Mensagem": "={{ $json.tom_mensagem }}",
+            "Status": "={{ (($json.Tentativas_Reengajamento || 0) + 1) >= 3 ? 'Arquivado_Sem_Resposta' : 'Aguardando_5min' }}",
+            "Proxima_Acao_At": "={{ $json.Proxima_Acao_At }}",
+            "Delay_Minutos": "={{ $json.delay_minutos }}"
+          }
+        },
+        "options": {
+          "continueOnFail": true
+        }
+      },
+      "id": "ef65d60e-0f6f-4fb5-b724-f74d4100ef88",
+      "name": "📊 Atualizar Status Reengajamento",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1780,
+        300
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZRCcorwTkMjhn6EC",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1bGuTWcNCMjTed91deAZo8eGwy38tqWh8C7rU6PPG27M",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Falhas_Reengajamento",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{$json.log_erro_reengajamento.timestamp}}",
+            "Lead_ID": "={{$json.log_erro_reengajamento.lead_id}}",
+            "Tipo_Erro": "={{$json.log_erro_reengajamento.tipo_erro}}",
+            "Mensagem_Erro": "={{$json.log_erro_reengajamento.mensagem_erro}}",
+            "Tentativas": "={{$json.log_erro_reengajamento.tentativas}}",
+            "Deve_Reprocessar": "={{$json.log_erro_reengajamento.deve_reprocessar}}",
+            "Contexto": "={{$json.log_erro_reengajamento.contexto}}",
+            "Nome_Cliente": "={{$json.log_erro_reengajamento.dados_originais.nome}}",
+            "Telefone_Cliente": "={{$json['Telefone com DDD'] || $json.telefone_limpo}}",
+            "Email_Cliente": "={{$json.log_erro_reengajamento.dados_originais.email}}"
+          }
+        },
+        "options": {}
+      },
+      "id": "d9620364-c0cc-4357-b6be-ca363b52dedf",
+      "name": "📊 Log Falhas Reengajamento",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2000,
+        300
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZRCcorwTkMjhn6EC",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "verificar-tentativas",
+              "leftValue": "={{($json.Tentativas_Reengajamento || 0) + 1}}",
+              "rightValue": "3",
+              "operator": {
+                "type": "number",
+                "operation": "smaller"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "verificacao-tentativas-001",
+      "name": "🔢 Verificar Tentativas < 3",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// DELAY ESCALONADO - REENGAJAMENTO\n// ========================================\n// 1ª tentativa: 5min | 2ª tentativa: 30min | 3ª+ tentativa: 120min\n\nconst dados = $input.all()[0].json;\n\n// Calcular tentativa atual\nconst tent = Number(dados.Tentativas_Reengajamento || 0) + 1;\n\n// Definir delay escalonado\nconst delay = tent === 1 ? 5 : (tent === 2 ? 30 : 120);\n\n// Calcular próxima ação\nconst proximaAcao = $now.plus(delay, 'minutes').toISO();\n\nconsole.log(`Tentativa ${tent}: delay de ${delay} minutos`);\nconsole.log(`Próxima ação: ${proximaAcao}`);\n\nreturn [{\n  ...dados,\n  Tentativas_Reengajamento: tent,\n  delay_minutos: delay,\n  Proxima_Acao_At: proximaAcao,\n  timestamp_delay: $now.toISO()\n}];"
+      },
+      "id": "delay-escalonado-001",
+      "name": "⏰ Calcular Delay Escalonado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/chat/typing/Bradesco",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.evolutionApi.token}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ '55' + String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}\",\n  \"state\": \"on\"\n}",
+        "options": {}
+      },
+      "id": "wa-typing-on-001",
+      "name": "📱 WA Digitando ON",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1600,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/chat/typing/Bradesco",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.evolutionApi.token}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ '55' + String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}\",\n  \"state\": \"off\"\n}",
+        "options": {}
+      },
+      "id": "wa-typing-off-001",
+      "name": "📱 WA Digitando OFF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2000,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.evolutionApi.token}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ '55' + String(($env.SUPERVISOR_WHATS || '').replace(/\\\\D/g,'')) }}\",\n  \"text\": \"🤖 REENG {{ $json.Lead_ID || 'sem_id' }} · Tentativa: {{ $json.Tentativas_Reengajamento || 1 }}\\n👤 {{ $json.Nome_Completo || 'Cliente' }}\\n📞 55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\\\D/g,'')) }}\\n⭐ Qualificação: {{ $json.classificacao || 'N/A' }} (Score: {{ $json.score || 0 }})\"\n}",
+        "options": {}
+      },
+      "id": "copia-rodrigo-001",
+      "name": "👨‍💼 Cópia para Rodrigo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1bGuTWcNCMjTed91deAZo8eGwy38tqWh8C7rU6PPG27M",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Reengajamento",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead_ID": "={{$json.Lead_ID || 'sem_id'}}",
+            "Nome_Cliente": "={{$json.Nome_Completo || 'Cliente'}}",
+            "Telefone": "={{$json['Telefone com DDD'] || $json.telefone_limpo}}",
+            "Tentativas": "={{$json.Tentativas_Reengajamento || 1}}",
+            "Template_Usado": "={{$json.template_usado || 'n/a'}}",
+            "Delay_Minutos": "={{$json.delay_minutos || 5}}",
+            "Status_Envio": "ok",
+            "Timestamp": "={{$now.toISO()}}",
+            "Proxima_Acao": "={{$json.Proxima_Acao_At}}"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-reengajamento-001",
+      "name": "📊 Log Reengajamento",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2200,
+        200
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZRCcorwTkMjhn6EC",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "if-anti-10h-robo",
+      "name": "🚫 IF Anti-10h Robô",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "verificar-atividade-9h",
+              "leftValue": "={{ $json.Ultima_Atividade }}",
+              "rightValue": "={{ $now.set({hour:9,minute:0,second:0,millisecond:0}).toISO() }}",
+              "operator": {
+                "type": "dateTime",
+                "operation": "after"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.evolutionApi.token}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"={{ '55' + String(($env.SUPERVISOR_WHATS || '').replace(/\\\\D/g,'')) }}\",\n  \"text\": \"🧭 Lead sem resposta (Robô 5min)\\n👤 {{ $json.Nome_Completo || 'Cliente' }}\\n📞 55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\\\D/g,'')) }}\\n⭐ Qualificação: {{ $json.classificacao || 'N/A' }} (Score: {{ $json.score || 0 }})\\n🎯 Atribuído a Rodrigo\\n🆔 {{ $json.Lead_ID || 'sem_id' }}\\n\"\n}",
+        "options": {}
+      },
+      "id": "aviso-vendedor-3a-tentativa",
+      "name": "👨‍💼 Aviso Vendedor 3ª Tentativa",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -3000,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "verificar-3a-tentativa",
+              "leftValue": "={{$json.Tentativas_Reengajamento || 0}}",
+              "rightValue": "3",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-3a-tentativa-001",
+      "name": "🔍 IF É 3ª Tentativa",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2600,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "⏰ Agendamento Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "📊 Buscar Leads Pendentes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Buscar Leads Pendentes": {
+      "main": [
+        [
+          {
+            "node": "🔍 Filtrar Leads Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Filtrar Leads Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "🔢 Verificar Tentativas < 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "💬 Variações Mensagens Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "🚫 IF Anti-10h Robô",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📱 Enviar WhatsApp Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "📱 WA Digitando OFF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "error": [
+        [
+          {
+            "node": "🚨 Controle Falhas Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Atualizar Status Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "📊 Log Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔢 Verificar Tentativas < 3": {
+      "main": [
+        [
+          {
+            "node": "⏰ Calcular Delay Escalonado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "📊 Atualizar Status Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⏰ Calcular Delay Escalonado": {
+      "main": [
+        [
+          {
+            "node": "💬 Variações Mensagens Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📱 WA Digitando ON": {
+      "main": [
+        [
+          {
+            "node": "📱 Enviar WhatsApp Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📱 WA Digitando OFF": {
+      "main": [
+        [
+          {
+            "node": "📊 Atualizar Status Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Log Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "🔍 IF É 3ª Tentativa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🚨 Controle Falhas Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "📊 Log Falhas Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Log Falhas Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "👨‍💼 Cópia para Rodrigo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "wa-typing-on-robo": {
+      "main": [
+        [
+          {
+            "node": "📱 Enviar WhatsApp Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "wa-typing-off-robo": {
+      "main": [
+        [
+          {
+            "node": "📊 Atualizar Status Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🚫 IF Anti-10h Robô": {
+      "main": [
+        [],
+        [
+          {
+            "node": "📱 WA Digitando ON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 IF É 3ª Tentativa": {
+      "main": [
+        [],
+        [
+          {
+            "node": "👨‍💼 Aviso Vendedor 3ª Tentativa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {},
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-09-22T03:54:06.425507",
+  "versionId": "3fa9511d-1875-4707-af06-5e84a823ae04"
+}
