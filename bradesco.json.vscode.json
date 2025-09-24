@@ -1625,7 +1625,7 @@
     },
     {
       "parameters": {
-        "jsCode": "/**\n * Sistema Rodízio Vendedores\n * - Escolhe vendedora disponível (com todos os serviços ok)\n * - Mantém rotação em storage\n * - Sempre envia CÓPIA para o Rodrigo (supervisão)\n * - Define campos vendedor.nome e vendedor.whatsapp\n */\n\nconst sd = $getWorkflowStaticData('global');\n\n// ====== CADASTRO DOS VENDEDORES (RODÍZIO ATIVO) ======\nconst vendedores = [\n  {\n    nome: 'Fabiana',\n    email: 'comercial@abmix.com.br',\n    whatsapp: '11971593900',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Juliana',\n    email: 'comercial6@abmix.com.br',\n    whatsapp: '11938020607',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Monique',\n    email: 'comercial2@abmix.com.br',\n    whatsapp: '11945352603',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Isabela',\n    email: 'comercial4@abmix.com.br',\n    whatsapp: '11953281647',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Rodrigo',\n    email: 'supervisao@abmix.com.br',\n    whatsapp: '11996163900',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n];\n\n// ====== SUPERVISÃO (RECEBE TODOS) ======\nconst supervisor = {\n  nome: 'Rodrigo',\n  email: 'supervisao@abmix.com.br',\n  whatsapp: '11996163900',\n  recebe_todos: true,\n};\n\n// ====== FILTRAR QUEM ESTÁ COMPLETO ======\nconst ativos = vendedores.filter(v =>\n  v.planilha_ok && v.agendor_ok && v.gmail_ok && v.whatsapp_ok\n);\n\n// fallback: se ninguém completo, joga para o Rodrigo\nif (ativos.length === 0) {\n  return [{\n    ...$json,\n    vendedor_alvo: supervisor.nome,\n    vendedor_email: supervisor.email,\n    vendedor_whatsapp: supervisor.whatsapp,\n    \n    // Campos estruturados do vendedor\n    vendedor: {\n      nome: supervisor.nome,\n      email: supervisor.email,\n      whatsapp: supervisor.whatsapp\n    },\n    \n    enviar_copia_supervisor: false, // já é o próprio\n    supervisor_email: supervisor.email,\n    supervisor_whatsapp: supervisor.whatsapp,\n    rodada_atual: -1,\n    timestamp_distribuicao: new Date().toISOString()\n  }];\n}\n\n// ====== RODÍZIO ======\nconst idx = typeof sd.rodizio_idx === 'number' ? sd.rodizio_idx : -1;\nconst nextIdx = (idx + 1) % ativos.length;\nsd.rodizio_idx = nextIdx;\n\nconst escolhido = ativos[nextIdx];\n\n// ====== SAÍDA PADRONIZADA ======\nreturn [{\n  ...$json,\n  vendedor_alvo: escolhido.nome,\n  vendedor_email: escolhido.email,\n  vendedor_whatsapp: escolhido.whatsapp,\n  \n  // Campos estruturados do vendedor (OBRIGATÓRIO)\n  vendedor: {\n    nome: escolhido.nome,\n    email: escolhido.email,\n    whatsapp: escolhido.whatsapp\n  },\n  \n  // Supervisor sempre recebe cópia\n  enviar_copia_supervisor: true,\n  supervisor_email: supervisor.email,\n  supervisor_whatsapp: supervisor.whatsapp,\n  \n  rodada_atual: nextIdx,\n  timestamp_distribuicao: new Date().toISOString()\n}];"
+        "jsCode": "/**\n * Sistema Rodízio Vendedores\n * - Escolhe vendedora disponível (com todos os serviços ok)\n * - Mantém rotação em storage\n * - Sempre envia CÓPIA para o Rodrigo (supervisão)\n * - Define campos vendedor.nome e vendedor.whatsapp\n */\n\nconst sd = $getWorkflowStaticData('global');\n\n// ====== CADASTRO DOS VENDEDORES (RODÍZIO ATIVO) ======\nconst vendedores = [\n  {\n    nome: 'Fabiana',\n    email: 'comercial@abmix.com.br',\n    whatsapp: '11971593900',\n    agendor_token: $env.AGENDOR_FABIANA,\n    leads_sheet_tab: 'Leads_Fabiana',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Juliana',\n    email: 'comercial6@abmix.com.br',\n    whatsapp: '11938020607',\n    agendor_token: $env.AGENDOR_JULIANA,\n    leads_sheet_tab: 'Leads_Juliana',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Monique',\n    email: 'comercial2@abmix.com.br',\n    whatsapp: '11945352603',\n    agendor_token: $env.AGENDOR_MONIQUE,\n    leads_sheet_tab: 'Leads_Monique',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Isabela',\n    email: 'comercial4@abmix.com.br',\n    whatsapp: '11953281647',\n    agendor_token: $env.AGENDOR_ISABELA,\n    leads_sheet_tab: 'Leads_Isabela',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Rodrigo',\n    email: 'supervisao@abmix.com.br',\n    whatsapp: '11996163900',\n    agendor_token: $env.AGENDOR_RODRIGO,\n    leads_sheet_tab: 'Leads_Rodrigo',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n];\n\n// ====== SUPERVISÃO (RECEBE TODOS) ======\nconst supervisor = {\n  nome: 'Rodrigo',\n  email: 'supervisao@abmix.com.br',\n  whatsapp: '11996163900',\n  recebe_todos: true,\n};\n\n// ====== FILTRAR QUEM ESTÁ COMPLETO ======\nconst ativos = vendedores.filter(v =>\n  v.planilha_ok && v.agendor_ok && v.gmail_ok && v.whatsapp_ok\n);\n\n// fallback: se ninguém completo, joga para o Rodrigo\nif (ativos.length === 0) {\n  return [{\n    ...$json,\n    vendedor_alvo: supervisor.nome,\n    vendedor_email: supervisor.email,\n    vendedor_whatsapp: supervisor.whatsapp,\n    \n    // Campos estruturados do vendedor\n    vendedor: {\n      nome: supervisor.nome,\n      email: supervisor.email,\n      whatsapp: supervisor.whatsapp\n    },\n    \n    enviar_copia_supervisor: false, // já é o próprio\n    supervisor_email: supervisor.email,\n    supervisor_whatsapp: supervisor.whatsapp,\n    rodada_atual: -1,\n    timestamp_distribuicao: new Date().toISOString()\n  }];\n}\n\n// ====== RODÍZIO ======\nconst idx = typeof sd.rodizio_idx === 'number' ? sd.rodizio_idx : -1;\nconst nextIdx = (idx + 1) % ativos.length;\nsd.rodizio_idx = nextIdx;\n\nconst escolhido = ativos[nextIdx];\n\n// ====== SAÍDA PADRONIZADA ======\nreturn [{\n  ...$json,\n  vendedor_alvo: escolhido.nome,\n  vendedor_email: escolhido.email,\n  vendedor_whatsapp: escolhido.whatsapp,\n  \n  // Campos estruturados do vendedor (OBRIGATÓRIO)\n  vendedor: {\n    nome: escolhido.nome,\n    email: escolhido.email,\n    whatsapp: escolhido.whatsapp,\n    agendor_token: escolhido.agendor_token,\n    leads_sheet_tab: escolhido.leads_sheet_tab\n  },\n  \n  // Supervisor sempre recebe cópia\n  enviar_copia_supervisor: true,\n  supervisor_email: supervisor.email,\n  supervisor_whatsapp: supervisor.whatsapp,\n  \n  rodada_atual: nextIdx,\n  timestamp_distribuicao: new Date().toISOString()\n}];"
       },
       "id": "6b268da7-7d9a-4546-907d-3adc3c3a4124",
       "name": "Sistema Rodízio Vendedores",
@@ -2373,7 +2373,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Token {{$env.AGENDOR_RODRIGO}}"
+              "value": "Token {{$json.vendedor.agendor_token}}"
             },
             {
               "name": "Content-Type",
@@ -2410,7 +2410,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// ========================================\n// PROCESSAR E VALIDAR LEAD PARA AGENDOR\n// ========================================\n\nconst items = $input.all();\nconst customFields = $workflow.staticData.customFields || {};\n\nconst out = items.map((it) => {\n  const lead = it.json;\n  \n  // VALIDAÇÃO MÍNIMA - precisa de pelo menos um identificador\n  if (!lead.Nome && !lead.Email && !lead.Telefone) {\n    return {json: {\n      ...lead,\n      erro: 'faltam_dados_minimos',\n      status_envio: 'rejeitado',\n      processar: false\n    }};\n  }\n  \n  // TELEFONE E.164 CORRETO (aceita 10-11 dígitos, sem duplicar DDI)\n  const telefone_e164 = (() => {\n    const d = String(lead.Telefone || '').replace(/\\\\D/g,'');\n    if (d.length < 10) return '';\n    const n = d.startsWith('55') ? d : '55' + d;\n    return '+' + n;\n  })();\n  \n  // EMAIL SANITIZADO\n  const email = String(lead.Email || '').toLowerCase().trim();\n  const emailValido = email.includes('@') && email.includes('.');\n  \n  // DATA NORMALIZADA\n  const data_qualificacao = (() => {\n    if (!lead.Data_Qualificacao) return new Date().toISOString().split('T')[0];\n    const d = new Date(lead.Data_Qualificacao);\n    return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];\n  })();\n  \n  // CIDADE/ESTADO\n  const [cidade, uf] = (lead.Cidade_Estado || '').split(/[,\\/]/).map(s => s.trim());\n  \n  // ROTEAMENTO VENDEDOR\n  const vendedores = {\n    'Rodrigo': {token: process.env.AGENDOR_RODRIGO, sheet: process.env.SHEET_RODRIGO_ID},\n    'Fabiana': {token: process.env.AGENDOR_FABIANA, sheet: process.env.SHEET_FABIANA_ID},\n    'Isabela': {token: process.env.AGENDOR_ISABELA, sheet: process.env.SHEET_ISABELA_ID},\n    'Monique': {token: process.env.AGENDOR_MONIQUE, sheet: process.env.SHEET_MONIQUE_ID},\n    'Juliana': {token: process.env.AGENDOR_JULIANA, sheet: process.env.SHEET_JULIANA_ID}\n  };\n  \n  const vendedor = vendedores[lead.Vendedor_Nome];\n  if (!vendedor) {\n    return {json: {\n      ...lead,\n      erro: 'vendedor_invalido|' + lead.Vendedor_Nome,\n      status_envio: 'erro',\n      processar: false\n    }};\n  }\n  \n  // STAGE MAPPING\n  const stageMap = {\n    'Novo': 'new',\n    'Qualificado': 'qualified', \n    'Proposta': 'proposal',\n    'Fechado_Ganho': 'won',\n    'Fechado_Perdido': 'lost'\n  };\n  \n  // CUSTOM FIELDS (robustos - só envia os que existem)\n  const camposParaEnviar = {};\n  const camposAusentes = [];\n  \n  // Mapear apenas campos que existem\n  const mapeamento = {\n    'idade_titular': lead.Idade_Titular,\n    'total_vidas': lead.Total_Vidas,\n    'idades_dependentes': lead.Idades_Dependentes,\n    'tipo_contratacao': lead.Contratacao,\n    'hospital_preferencia': lead.Hospital_Preferencia,\n    'plano_atual': lead.Plano_Atual,\n    'preexistencia': lead.Preexistencia,\n    'doenca_grave': lead.Doenca_Grave,\n    'classificacao': lead.Classificacao,\n    'score': lead.Score,\n    'plano_sugerido': lead.Plano_Sugerido\n  };\n  \n  for (const [campo, valor] of Object.entries(mapeamento)) {\n    if (valor !== undefined && valor !== '') {\n      if (customFields[campo]) {\n        camposParaEnviar[customFields[campo]] = String(valor);\n      } else {\n        camposAusentes.push(campo);\n      }\n    }\n  }\n  \n  return {json: {\n    ...lead,\n    telefone_e164,\n    email_normalizado: emailValido ? email : '',\n    data_qualificacao,\n    cidade,\n    uf,\n    vendedor_token: vendedor.token,\n    vendedor_sheet: vendedor.sheet,\n    vendedor_nome: lead.Vendedor_Nome,\n    stage: stageMap[lead.Status] || 'qualified',\n    custom_fields: camposParaEnviar,\n    custom_fields_ausentes: camposAusentes.join(','),\n    processar: true,\n    agendor_person_id: lead.Agendor_Person_ID || '',\n    agendor_deal_id: lead.Agendor_Deal_ID || ''\n  }};\n});\n\nconsole.log(`Leads processados para Agendor: ${out.length}`);\nreturn out;"
+        "jsCode": "// ========================================\n// PROCESSAR E VALIDAR LEAD PARA AGENDOR\n// ========================================\n\nconst items = $input.all();\nconst customFields = $workflow.staticData.customFields || {};\n\nconst out = items.map((it) => {\n  const lead = it.json;\n  \n  // VALIDAÇÃO MÍNIMA - precisa de pelo menos um identificador\n  if (!lead.Nome && !lead.Email && !lead.Telefone) {\n    return {json: {\n      ...lead,\n      erro: 'faltam_dados_minimos',\n      status_envio: 'rejeitado',\n      processar: false\n    }};\n  }\n  \n  // TELEFONE E.164 CORRETO (aceita 10-11 dígitos, sem duplicar DDI)\n  const telefone_e164 = (() => {\n    const d = String(lead.Telefone || '').replace(/\\\\D/g,'');\n    if (d.length < 10) return '';\n    const n = d.startsWith('55') ? d : '55' + d;\n    return '+' + n;\n  })();\n  \n  // EMAIL SANITIZADO\n  const email = String(lead.Email || '').toLowerCase().trim();\n  const emailValido = email.includes('@') && email.includes('.');\n  \n  // DATA NORMALIZADA\n  const data_qualificacao = (() => {\n    if (!lead.Data_Qualificacao) return new Date().toISOString().split('T')[0];\n    const d = new Date(lead.Data_Qualificacao);\n    return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];\n  })();\n  \n  // CIDADE/ESTADO\n  const [cidade, uf] = (lead.Cidade_Estado || '').split(/[,\\/]/).map(s => s.trim());\n  \n  // USAR DADOS DO VENDEDOR JÁ ATRIBUÍDO\n  if (!lead.vendedor || !lead.vendedor.agendor_token) {\n    return {json: {\n      ...lead,\n      erro: 'vendedor_sem_token|' + (lead.vendedor?.nome || 'indefinido'),\n      status_envio: 'erro',\n      processar: false\n    }};\n  }\n  \n  // STAGE MAPPING\n  const stageMap = {\n    'Novo': 'new',\n    'Qualificado': 'qualified', \n    'Proposta': 'proposal',\n    'Fechado_Ganho': 'won',\n    'Fechado_Perdido': 'lost'\n  };\n  \n  // CUSTOM FIELDS (robustos - só envia os que existem)\n  const camposParaEnviar = {};\n  const camposAusentes = [];\n  \n  // Mapear apenas campos que existem\n  const mapeamento = {\n    'idade_titular': lead.Idade_Titular,\n    'total_vidas': lead.Total_Vidas,\n    'idades_dependentes': lead.Idades_Dependentes,\n    'tipo_contratacao': lead.Contratacao,\n    'hospital_preferencia': lead.Hospital_Preferencia,\n    'plano_atual': lead.Plano_Atual,\n    'preexistencia': lead.Preexistencia,\n    'doenca_grave': lead.Doenca_Grave,\n    'classificacao': lead.Classificacao,\n    'score': lead.Score,\n    'plano_sugerido': lead.Plano_Sugerido\n  };\n  \n  for (const [campo, valor] of Object.entries(mapeamento)) {\n    if (valor !== undefined && valor !== '') {\n      if (customFields[campo]) {\n        camposParaEnviar[customFields[campo]] = String(valor);\n      } else {\n        camposAusentes.push(campo);\n      }\n    }\n  }\n  \n  return {json: {\n    ...lead,\n    telefone_e164,\n    email_normalizado: emailValido ? email : '',\n    data_qualificacao,\n    cidade,\n    uf,\n    vendedor_token: lead.vendedor.agendor_token,\n    vendedor_sheet: lead.vendedor.leads_sheet_tab,\n    vendedor_nome: lead.vendedor.nome,\n    stage: stageMap[lead.Status] || 'qualified',\n    custom_fields: camposParaEnviar,\n    custom_fields_ausentes: camposAusentes.join(','),\n    processar: true,\n    agendor_person_id: lead.Agendor_Person_ID || '',\n    agendor_deal_id: lead.Agendor_Deal_ID || ''\n  }};\n});\n\nconsole.log(`Leads processados para Agendor: ${out.length}`);\nreturn out;"
       },
       "id": "processar-lead-agendor-001",
       "name": "🔄 Processar Lead para Agendor",
@@ -2475,7 +2475,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Token {{$json.vendedor_token}}"
+              "value": "Token {{$json.vendedor.agendor_token}}"
             },
             {
               "name": "Content-Type",
@@ -2504,13 +2504,13 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "{{$env.AGENDOR_BASE_URL}}/people/{{$node[\"👤 Upsert Pessoa Agendor\"].json.data.id || $json.person_id || $json.agendor_person_id}}/deals",
+        "url": "{{$env.AGENDOR_BASE_URL}}/people/{{$json.data.id || $json.person_id || $json.agendor_person_id}}/deals?status=open",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Token {{$json.vendedor_token}}"
+              "value": "Token {{$json.vendedor.agendor_token}}"
             }
           ]
         },
@@ -2577,13 +2577,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "{{$env.AGENDOR_BASE_URL}}/people/{{$node[\"👤 Upsert Pessoa Agendor\"].json.data.id || $json.person_id || $json.agendor_person_id}}/deals",
+        "url": "{{$env.AGENDOR_BASE_URL}}/people/{{$json.data.id || $json.person_id || $json.agendor_person_id}}/deals",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Token {{$json.vendedor_token}}"
+              "value": "Token {{$json.vendedor.agendor_token}}"
             },
             {
               "name": "Content-Type",
@@ -2650,7 +2650,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Token {{$json.vendedor_token}}"
+              "value": "Token {{$json.vendedor.agendor_token}}"
             },
             {
               "name": "Content-Type",
@@ -2682,7 +2682,7 @@
         "documentId": {
           "__rl": true,
           "value": "={{$json.vendedor_sheet}}",
-          "mode": "id"
+          "mode": "list"
         },
         "sheetName": {
           "__rl": true,
@@ -3991,6 +3991,15 @@
             "index": 0
           }
         ]
+      ],
+      "error": [
+        [
+          {
+            "node": "🔄 Controle Retry Manual",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "💼 Atualizar Deal Stage": {
@@ -4002,6 +4011,15 @@
             "index": 0
           }
         ]
+      ],
+      "error": [
+        [
+          {
+            "node": "🔄 Controle Retry Manual",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "📊 Log Planilha Vendedor": {
@@ -4009,6 +4027,17 @@
         [
           {
             "node": "✅ Marcar Sincronizado Agendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✅ Marcar Sincronizado Agendor": {
+      "main": [
+        [
+          {
+            "node": "Decrementar Execuções",
             "type": "main",
             "index": 0
           }
@@ -4037,7 +4066,7 @@
         ],
         [
           {
-            "node": "📊 Log Planilha Vendedor",
+            "node": "Decrementar Execuções",
             "type": "main",
             "index": 0
           }
