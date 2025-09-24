@@ -1,0 +1,68 @@
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700;800&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bradesco-red: #CC092F;
+  --bradesco-purple: #830053;
+  --bradesco-red-dark: #a00726;
+  --dark-gray: #231F20;
+  --light-gray: #EBEBEB;
+  --white: #FFFFFF;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Open Sans', sans-serif;
+  background-color: var(--white);
+  color: var(--dark-gray);
+  line-height: 1.6;
+}
+
+.bradesco-red {
+  color: var(--bradesco-red);
+}
+
+.bg-bradesco-red {
+  background-color: var(--bradesco-red);
+}
+
+.bg-bradesco-red:hover {
+  background-color: var(--bradesco-red-dark);
+}
+
+.bg-light-gray {
+  background-color: var(--light-gray);
+}
+
+.text-dark-gray {
+  color: var(--dark-gray);
+}
+
+.border-light-gray {
+  border-color: var(--light-gray);
+}
+
+.text-bradesco-red-dark {
+  color: var(--bradesco-red-dark);
+}
+
+.smooth-scroll {
+  scroll-behavior: smooth;
+}
+
+@media (max-width: 768px) {
+  .hero-mobile-order {
+    order: 2;
+  }
+  
+  .form-mobile-order {
+    order: 1;
+  }
+}
