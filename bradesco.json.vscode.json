@@ -1,1774 +1,934 @@
 {
-   "name":"Bradesco_Qualificacao_Inteligente",
-   "nodes":[
-      {
-         "parameters":{
-            "functionCode":"// Processar resposta da OpenAI - Parse Resiliente\nlet r={}; \ntry { r = JSON.parse($json.choices[0]?.message?.content ?? '{}'); } catch(e){ r={}; }\nreturn {\n  ...$json,\n  mensagem_mariana_loop: r.mensagem_cliente ?? $json.mensagem_mariana_loop,\n  classificacao: r.classificacao_final ?? $json.classificacao,\n  score: (r.score_final ?? $json.score),\n  qualificacao_completa: r.qualificacao_completa === true\n};"
-         },
-         "id":"62",
-         "name":"Processar Resposta OpenAI (loop)",
-         "type":"n8n-nodes-base.code",
-         "typeVersion":2,
-         "position":[
-            4250,
-            720
-         ]
-      },
-      {
-         "parameters":{
-            "conditions":{
-               "boolean":[
-                  {
-                     "value1":"={{$json.qualificacao_completa}}",
-                     "value2":true
-                  }
-               ],
-               "number":[
-                  {
-                     "value1":"={{$json.total_interacoes || 0}}",
-                     "operation":"largerEqual",
-                     "value2":8
-                  }
-               ]
-            },
-            "combineOperation":"any"
-         },
-         "id":"97",
-         "name":"Condição de Parada Loop",
-         "type":"n8n-nodes-base.if",
-         "typeVersion":2,
-         "position":[
-            4350,
-            720
-         ]
-      },
-      {
-         "parameters":{
-            "method":"POST",
-            "url":"={{$env.EVOLUTION_URL}}/message/sendText/{{$env.EVOLUTION_INSTANCE}}",
-            "sendHeaders":true,
-            "headerParameters":{
-               "parameters":[
-                  {
-                     "name":"Authorization",
-                     "value":"Bearer {{$env.EVOLUTION_TOKEN}}"
-                  },
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            },
-            "sendBody":true,
-            "bodyParameters":{
-               "parameters":[
-                  {
-                     "name":"number",
-                     "value":"={{'55' + $json.telefone_limpo}}"
-                  },
-                  {
-                     "name":"text",
-                     "value":"={{$json.mensagem_mariana_loop}}"
-                  }
-               ]
-            },
-            "options":{
-               
+  "name": "🤖 Reengajamento Bradesco - Otimizado",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
             }
-         },
-         "id":"63",
-         "name":"WhatsApp Enviar Mariana (continuação)",
-         "type":"n8n-nodes-base.httpRequest",
-         "typeVersion":4.1,
-         "position":[
-            4450,
-            720
-         ]
+          ]
+        }
       },
-      {
-         "parameters":{
-            "path":"bradesco-landing",
-            "responseMode":"responseNode",
-            "options":{
-               
+      "id": "812b3268-af5e-4faf-b11f-1fa41c2d6d2d",
+      "name": "⏰ Agendamento Reengajamento",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.evolutionApi.token}}"
             }
-         },
-         "id":"1",
-         "name":"Recebe Formulário Landing",
-         "type":"n8n-nodes-base.webhook",
-         "position":[
-            250,
-            300
-         ],
-         "typeVersion":1
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"number\": \"5511996163900\", \"text\": \"⚠️ 3ª TENTATIVA — AÇÃO MANUAL NECESSÁRIA\\n{{ $json.nome_normalizado || $json.Nome_Completo || $json['Nome Completo'] || 'Cliente' }}\\n{{ $json.telefone_normalizado }}\"}",
+        "options": {"continueOnFail": true, "timeout": 60000}
       },
-      {
-         "parameters":{
-            "functionCode":"// ANÁLISE COMPLETA DO CAMPO MENSAGEM OPCIONAL\nfunction analisarMensagemOpcional(mensagem) {\n if (!mensagem) return { dados_faltantes: ['idades_dependentes', 'tipo_documento', 'hospital_preferencia', 'plano_atual'] };\n \n function removerAcentos(str) {\n return str.normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\");\n }\n const msg = removerAcentos(mensagem.toLowerCase());\n const dadosExtraidos = {\n idades_informadas: [],\n tem_cnpj: false,\n tem_mei: false,\n tem_cpf: false,\n hospital_mencionado: null,\n plano_atual: null,\n doencas_mencionadas: [],\n dados_faltantes: []\n };\n\n // EXTRAÇÃO DE IDADES\n const padraoIdades = [\n /(\\w+)\\s+(?:de\\s+)?(\\d{1,2})\\s*(?:anos?)?/gi,\n /(\\d{1,2})\\s*(?:anos?)?\\s+(\\w+)/gi,\n /(\\d{1,2})\\s*(?:anos?)?/gi\n ];\n \n padraoIdades.forEach(padrao => {\n let match;\n while ((match = padrao.exec(mensagem)) !== null) {\n let idade = match[0].match(/\\d+/)?.[0];\n if (idade && parseInt(idade) < 120) {\n dadosExtraidos.idades_informadas.push(parseInt(idade));\n }\n }\n });\n\n // EXTRAÇÃO CNPJ/MEI/CPF\n if (/cnpj|empresa|mei|ltda/.test(msg)) {\n dadosExtraidos.tem_cnpj = true;\n } else if (/cpf|pessoa.?f[íi]sica/.test(msg)) {\n dadosExtraidos.tem_cpf = true;\n }\n\n // EXTRAÇÃO HOSPITAIS\n const hospitais = ['einstein', 'sirio', 'oswaldo', 'beneficencia', 'samaritano', 'santa catarina', 'sao camilo', '9 de julho', 'copa star'];\n hospitais.forEach(h => {\n if (msg.includes(h)) {\n dadosExtraidos.hospital_mencionado = h;\n }\n });\n\n // EXTRAÇÃO PLANO ATUAL\n const planos = ['amil', 'sulamerica', 'unimed', 'notredame', 'hapvida', 'prevent'];\n planos.forEach(p => {\n if (msg.includes(p)) {\n dadosExtraidos.plano_atual = p;\n }\n });\n\n // EXTRAÇÃO DOENÇAS - CORRIGIDO SEM ACENTO\n if (/cancer|dialise|transplante/.test(msg)) {\n dadosExtraidos.doenca_grave = true;\n }\n if (/diabetes|pressao|hipertens/.test(msg)) {\n dadosExtraidos.doenca_controlavel = true;\n }\n\n // PORTABILIDADE\n if (/portabilidade|migrar|trocar\\s*plano|mudar\\s*plano|transferir|aproveitar\\s*car[êe]ncia/.test(msg)) {\n dadosExtraidos.quer_portabilidade = true;\n }\n\n // Define o que falta\n if (dadosExtraidos.idades_informadas.length === 0) {\n dadosExtraidos.dados_faltantes.push('idades_dependentes');\n }\n if (!dadosExtraidos.tem_cnpj && !dadosExtraidos.tem_cpf) {\n dadosExtraidos.dados_faltantes.push('tipo_documento');\n }\n if (!dadosExtraidos.hospital_mencionado) {\n dadosExtraidos.dados_faltantes.push('hospital_preferencia');\n }\n if (!dadosExtraidos.plano_atual && !dadosExtraidos.quer_portabilidade) {\n dadosExtraidos.dados_faltantes.push('plano_atual');\n }\n\n return dadosExtraidos;\n}\n\n// PREPARAÇÃO INICIAL DOS DADOS\nconst dados = $input.item.json;\n\n// VALIDAÇÃO DE CAMPOS OBRIGATÓRIOS\nif (!dados.nome || !dados.telefone) {\n throw new Error('Campos obrigatórios faltando: nome e telefone');\n}\n\n// Analisa campo mensagem ANTES de qualquer coisa\nconst analise_mensagem = analisarMensagemOpcional(dados.mensagem || '');\n\n// Limpa telefone e valida\nconst telefone = (dados.telefone || '').replace(/[^0-9]/g, '');\nconst telefoneWhats = telefone.length === 11 ? telefone : '11' + telefone;\n\n// VALIDAÇÃO DE TELEFONE\nlet telefone_invalido = false;\nif (!telefone || telefone.length < 10 || telefone.length > 11) {\n telefone_invalido = true;\n}\n\n// Calcula idade\nlet idade = null;\nif (dados.nascimento) {\n const nascimento = new Date(dados.nascimento);\n if (!isNaN(nascimento.getTime())) {\n const hoje = new Date();\n idade = hoje.getFullYear() - nascimento.getFullYear();\n const mes = hoje.getMonth() - nascimento.getMonth();\n if (mes < 0 || (mes === 0 && hoje.getDate() < nascimento.getDate())) {\n idade--;\n }\n }\n}\n\n// Classificação inicial considerando TUDO\nlet classificacao = 'ANALISAR';\nlet score = 50;\n\n// NOVA LÓGICA: todos seguem para coleta, só muda classificação\nif (analise_mensagem.quer_portabilidade) {\n classificacao = 'PORTABILIDADE';\n score = 80;\n} else if (analise_mensagem.doenca_grave || idade >= 67) {\n classificacao = 'FRIO';\n score = 20;\n} else if (dados.vidas < 3) {\n classificacao = 'MORNO';\n score = 40;\n} else {\n classificacao = 'QUENTE';\n score = 70;\n}\n\n// Monta objeto final com TUDO\nreturn {\n ...dados,\n lead_id: `BD_${Date.now()}_${telefone.slice(-4)}`,\n telefone_limpo: telefoneWhats,\n telefone_whatsapp: `55${telefoneWhats}@s.whatsapp.net`,\n telefone_invalido: telefone_invalido,\n idade_titular: idade,\n classificacao_inicial: classificacao,\n score_inicial: score,\n dados_extraidos_mensagem: analise_mensagem,\n dados_faltantes: analise_mensagem.dados_faltantes,\n timestamp: new Date().toISOString(),\n horario: new Date().getHours() < 12 ? 'Bom dia' : new Date().getHours() < 18 ? 'Boa tarde' : 'Boa noite'\n};"
-         },
-         "id":"2",
-         "name":"Processar Dados Iniciais",
-         "type":"n8n-nodes-base.code",
-         "position":[
-            450,
-            300
-         ],
-         "typeVersion":2
+      "id": "aviso-vendedor-3a-tentativa",
+      "name": "🔖 Aviso Vendedor 3ª Tentativa",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2800,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1bUg8Kqhl_4dhIy_unfqqBYqhV9ICrGyHu3muv0LW1Hk",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Reengajamento",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead_ID": "={{$json.Lead_ID || 'sem_id'}}",
+            "Nome_Cliente": "={{$json.Nome_Completo || 'Cliente'}}",
+            "Nome_Normalizado": "={{$json.nome_normalizado}}",
+            "Telefone": "={{$json['Telefone com DDD'] || $json.telefone_limpo}}",
+            "Telefone_Normalizado": "={{$json.telefone_normalizado}}",
+            "Tentativas": "={{$json.Tentativas_Reengajamento || 1}}",
+            "Template_Usado": "={{$json.template_usado || 'n/a'}}",
+            "Mensagem_Enviada": "={{$json.mensagem_reengajamento}}",
+            "Delay_Minutos": "={{$json.delay_minutos || 5}}",
+            "Status_Envio": "ok",
+            "Timestamp": "={{$now.toISO()}}",
+            "Proxima_Acao": "={{$json.Proxima_Acao_At}}"
+          }
+        },
+        "options": {}
       },
-      {
-         "parameters":{
-            "operation":"append",
-            "sheetId":"{{$env.SHEET_ID_BRUTOS}}",
-            "sheetName":"Leads_Brutos",
-            "columns":{
-               "mappingMode":"defineBelow",
-               "value":{
-                  "Nome Completo":"={{$json.nome}}",
-                  "Telefone com DDD":"={{$json.telefone}}",
-                  "E-mail":"={{$json.email}}",
-                  "Data de Nascimento":"={{$json.nascimento}}",
-                  "Estado":"={{$json.estado}}",
-                  "Cidade":"={{$json.cidade}}",
-                  "Número de Vidas":"={{$json.vidas}}",
-                  "Mensagem":"={{$json.mensagem}}",
-                  "Lead_ID":"={{$json.lead_id}}",
-                  "Idade_Calculada":"={{$json.idade_titular}}",
-                  "Status":"Novo - Aguardando IA"
-               }
-            },
-            "options":{
-               
-            }
-         },
-         "id":"3",
-         "name":"Salvar Google Sheets Brutos",
-         "type":"n8n-nodes-base.googleSheets",
-         "position":[
-            650,
-            200
-         ],
-         "typeVersion":4
-      },
-      {
-         "parameters":{
-            "sendTo":"{{$env.VENDOR_DEFAULT_EMAIL}}",
-            "subject":"🔔 Novo Lead #{{$json.lead_id}} - {{$json.nome}}",
-            "emailType":"html",
-            "message":"<h2>Novo Lead Recebido - ABMix Corretora</h2>\n<table border='1' style='border-collapse:collapse'>\n<tr><td><b>ID:</b></td><td>{{$json.lead_id}}</td></tr>\n<tr><td><b>Nome:</b></td><td>{{$json.nome}}</td></tr>\n<tr><td><b>Telefone:</b></td><td>{{$json.telefone}}</td></tr>\n<tr><td><b>Email:</b></td><td>{{$json.email}}</td></tr>\n<tr><td><b>Idade:</b></td><td>{{$json.idade_titular}} anos</td></tr>\n<tr><td><b>Local:</b></td><td>{{$json.cidade}}/{{$json.estado}}</td></tr>\n<tr><td><b>Vidas:</b></td><td>{{$json.vidas}}</td></tr>\n<tr><td><b>Mensagem:</b></td><td>{{$json.mensagem}}</td></tr>\n<tr><td><b>Classificação:</b></td><td>{{$json.classificacao_inicial}}</td></tr>\n</table>\n<p><i>Atendimento automático iniciado via WhatsApp</i></p>",
-            "options":{
-               
-            }
-         },
-         "id":"4",
-         "name":"Email Controle Interno",
-         "type":"n8n-nodes-base.gmail",
-         "position":[
-            650,
-            400
-         ],
-         "typeVersion":2.1
-      },
-      {
-         "parameters":{
-            "method":"POST",
-            "url":"={{$env.EVOLUTION_URL}}/message/sendText/{{$env.EVOLUTION_INSTANCE}}",
-            "sendHeaders":true,
-            "headerParameters":{
-               "parameters":[
-                  {
-                     "name":"Authorization",
-                     "value":"Bearer {{$env.EVOLUTION_TOKEN}}"
-                  },
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            },
-            "sendBody":true,
-            "bodyParameters":{
-               "parameters":[
-                  {
-                     "name":"number",
-                     "value":"={{'55' + $json.telefone_limpo}}"
-                  },
-                  {
-                     "name":"text",
-                     "value":"Olá Dr(a). {{$json.nome}}!\n\nSou a Mariana, consultora especialista Bradesco Saúde.\n\nRecebi sua solicitação! 😊\n\nVou fazer algumas perguntinhas rápidas para conseguir as melhores opções.\n\nEnquanto isso, se tiver alguma dúvida específica, fique à vontade para perguntar.\n\n— Mariana · Bradesco Saúde"
-                  }
-               ]
-            },
-            "options":{
-               
-            }
-         },
-         "id":"5",
-         "name":"WhatsApp Resposta Inicial",
-         "type":"n8n-nodes-base.httpRequest",
-         "typeVersion":4.1,
-         "position":[
-            850,
-            300
-         ]
-      },
-      {
-         "parameters":{
-            "amount":50,
-            "unit":"seconds"
-         },
-         "id":"6",
-         "name":"Aguardar Resposta ou 50seg",
-         "type":"n8n-nodes-base.wait",
-         "position":[
-            1050,
-            300
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "method":"POST",
-            "url":"={{$env.EVOLUTION_URL}}/chat/typing/{{$env.EVOLUTION_INSTANCE}}",
-            "sendHeaders":true,
-            "headerParameters":{
-               "parameters":[
-                  {
-                     "name":"Authorization",
-                     "value":"Bearer {{$env.EVOLUTION_TOKEN}}"
-                  },
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            },
-            "sendBody":true,
-            "bodyParameters":{
-               "parameters":[
-                  {
-                     "name":"number",
-                     "value":"={{'55' + $json.telefone_limpo}}"
-                  },
-                  {
-                     "name":"state",
-                     "value":"on"
-                  }
-               ]
-            },
-            "options":{
-               
-            }
-         },
-         "id":"7",
-         "name":"Status Digitando ON",
-         "type":"n8n-nodes-base.httpRequest",
-         "position":[
-            1250,
-            200
-         ],
-         "typeVersion":4.1
-      },
-      {
-         "parameters":{
-            "functionCode":"// PROMPT COM COLETA RÁPIDA (2–3 itens por turno), humano e sem repetição do que já veio do formulário\n\nconst promptSistema = `Você é a Mariana, consultora da Bradesco Saúde com 10 anos de experiência em planos de saúde corporativos e individuais.\n\nCOMPORTAMENTO E PERSONALIDADE:\n- Profissional, cordial, humanizada, calorosa e empática.\n- Sempre pareça humana: reconheça o que o cliente diz, agradeça, adapte o tom conforme o perfil, nunca seja robótica.\n- Use emojis com moderação (😊 ✅ 📌 💙 🏥 💊).\n- Adapte a saudação conforme horário (bom dia/tarde/noite).\n- Trate médicos como \"Dr(a).\" e seja respeitosa com profissionais da saúde.\n- Assine sempre: — Mariana · Bradesco Saúde.\n- Se o cliente demonstrar insegurança, reforce acolhimento e segurança.\n- Se o cliente pedir agilidade, seja objetiva e rápida.\n- Se o cliente for idoso, seja ainda mais respeitosa e clara.\n- Se o cliente pedir para falar com humano, encaminhe imediatamente e avise.\n- Seja proativa em explicar benefícios e diferenciais.\n- Sempre ofereça alternativas quando possível.\n\nPLANOS BRADESCO SAÚDE - DETALHAMENTO COMPLETO:\n\n🏥 EFETIVO (Básico - Rede Essencial):\n- Rede: Beneficência Portuguesa, Hospital São Paulo, Hospital das Clínicas\n- Características: Ideal para empresas que buscam economia com qualidade\n- Cobertura: Consultas, exames básicos, urgência/emergência\n- Perfil: Empresas com orçamento limitado, funcionários jovens\n\n🏥 FLEX (Intermediário - Rede Ampliada):\n- Rede: + Santa Paula, São Camilo, Hospital 9 de Julho\n- Características: Equilíbrio entre custo e benefício\n- Cobertura: + Exames de média complexidade, especialistas\n- Perfil: Empresas médias, funcionários com famílias\n\n🏥 IDEAL (Digital - Rede Completa):\n- Rede: + Hospital Oswaldo Cruz, Santa Catarina, Rede D'Or\n- Características: Cobertura ampla com tecnologia digital\n- Cobertura: + Telemedicina, exames complexos, cirurgias\n- Perfil: Empresas modernas, funcionários conectados\n\n🏥 NACIONAL (Cobertura Brasil Todo):\n- Rede: + Hospitais em todas as capitais brasileiras\n- Características: Ideal para empresas com funcionários em viagem\n- Cobertura: + Atendimento nacional, reembolso\n- Perfil: Empresas nacionais, executivos viajantes\n\n🏥 NACIONAL PLUS (Premium com Einstein/Sírio):\n- Rede: + Einstein, Sírio-Libanês, Copa D'Or, Quinta D'Or\n- Características: Premium com hospitais de referência\n- Cobertura: + Medicina de alta complexidade, transplantes\n- Perfil: Empresas premium, executivos de alto nível\n\n🏥 PREMIUM (Top com Copa Star/Samaritano):\n- Rede: + Copa Star, Samaritano, Vila Nova Star\n- Características: Máxima qualidade e exclusividade\n- Cobertura: + Suítes, chef, medicina personalizada\n- Perfil: Empresas de luxo, CEOs, personalidades\n\nREDE HOSPITALAR DETALHADA POR REGIÃO:\n\n📍 SÃO PAULO - CAPITAL:\n- Beneficência Portuguesa: Emergência, cardiologia, ortopedia\n- Einstein: Oncologia, neurocirurgia, transplantes\n- Sírio-Libanês: Cardiologia, oncologia, pediatria\n- Oswaldo Cruz: Emergência, UTI, cirurgias\n- Santa Catarina: Maternidade, pediatria, ginecologia\n- 9 de Julho: Ortopedia, traumatologia, reabilitação\n- Copa Star: Medicina personalizada, check-ups\n- Samaritano: Cardiologia, neurologia, oncologia\n- Vila Nova Star: Medicina estética, wellness\n\n📍 RIO DE JANEIRO:\n- Copa D'Or: Cardiologia, oncologia, maternidade\n- Quinta D'Or: Ortopedia, traumatologia, reabilitação\n- Samaritano: Cardiologia, neurologia\n- Barra D'Or: Emergência, UTI, cirurgias\n- Casa de Saúde São José: Maternidade, pediatria\n\n📍 OUTRAS CAPITAIS:\n- Brasília: Hospital Brasília, Hospital Sírio-Libanês\n- Belo Horizonte: Mater Dei, Hospital das Clínicas\n- Salvador: Hospital Português, Hospital São Rafael\n- Recife: Hospital Português, Hospital Esperança\n- Porto Alegre: Hospital Moinhos de Vento, Hospital São Lucas\n\nCARÊNCIAS DETALHADAS:\n- Urgência/Emergência: 24 horas (todos os planos)\n- Consultas médicas: 30 dias (todos os planos)\n- Exames simples: 30 dias (sangue, urina, raio-x)\n- Exames complexos: 180 dias (ressonância, tomografia)\n- Internações: 180 dias (todos os planos)\n- Parto: 300 dias (todos os planos)\n- Doenças preexistentes: 24 meses (todos os planos)\n- Cirurgias eletivas: 180 dias (todos os planos)\n- Transplantes: 24 meses (Nacional Plus/Premium)\n- Medicina estética: 12 meses (Premium)\n\nREGRAS DE CONTRATAÇÃO:\n- Mínimo 3 vidas (titular + 2 dependentes)\n- CNPJ/MEI ativo há pelo menos 6 meses\n- Idade limite: 59 anos (acima disso análise especial)\n- Recém-nascido: até 30 dias sem carência\n- Adesão: até 30 dias após nascimento\n- Documentação: CNPJ, comprovante de renda, documentos pessoais\n\nPROCESSO DE CONTRATAÇÃO:\n1. Análise de perfil e necessidades\n2. Apresentação de propostas personalizadas\n3. Análise de elegibilidade\n4. Emissão de proposta comercial\n5. Assinatura do contrato\n6. Ativação do plano em até 48h\n\nDIFERENCIAIS BRADESCO SAÚDE:\n- Rede própria de hospitais\n- Telemedicina 24h (planos Ideal+)\n- App Bradesco Saúde com agendamento\n- Programa de prevenção e wellness\n- Atendimento personalizado\n- Desconto em farmácias credenciadas\n- Segunda opinião médica\n- Acompanhamento de gestantes\n\nQUALIFICAÇÃO DE LEADS:\n- QUENTE: Empresa com 10+ funcionários, orçamento definido, urgência\n- MORNO: Empresa média, orçamento flexível, sem urgência\n- FRIO: Empresa pequena, orçamento limitado, muitas restrições\n- PORTABILIDADE: Cliente quer migrar de outro plano\n- ANALISE_HUMANA: Casos complexos que precisam de análise manual\n\nRETORNE APENAS JSON VÁLIDO:\n{\n \"mensagem_cliente\": \"string\",\n \"classificacao_final\": \"QUENTE|MORNO|FRIO|PORTABILIDADE|ANALISE_HUMANA\",\n \"score_final\": 0-100,\n \"qualificacao_completa\": true|false\n}`;\n\nconst contexto = {\n dados_ja_coletados: {\n nome: $json.nome,\n idade_titular: $json.idade_titular,\n cidade: $json.cidade,\n estado: $json.estado,\n total_vidas: $json.vidas,\n mensagem_original: $json.mensagem\n },\n dados_extraidos_mensagem: $json.dados_extraidos_mensagem,\n dados_faltantes: $json.dados_faltantes,\n classificacao_inicial: $json.classificacao_inicial,\n score: $json.score_inicial\n};\n\n// Monta informação sobre o que já foi coletado\nlet infoColetada = 'INFORMAÇÕES JÁ FORNECIDAS (NÃO PERGUNTAR):\\n';\ninfoColetada += `- Nome: ${contexto.dados_ja_coletados.nome}\\n`;\ninfoColetada += `- Idade titular: ${contexto.dados_ja_coletados.idade_titular} anos\\n`;\ninfoColetada += `- Total vidas: ${contexto.dados_ja_coletados.total_vidas}\\n`;\ninfoColetada += `- Local: ${contexto.dados_ja_coletados.cidade}/${contexto.dados_ja_coletados.estado}\\n`;\n\nif (contexto.dados_extraidos_mensagem.idades_informadas?.length > 0) {\n infoColetada += `- Idades informadas: ${contexto.dados_extraidos_mensagem.idades_informadas.join(', ')} anos\\n`;\n}\nif (contexto.dados_extraidos_mensagem.tem_cnpj) {\n infoColetada += `- Tipo documento: CNPJ/MEI\\n`;\n}\nif (contexto.dados_extraidos_mensagem.tem_cpf) {\n infoColetada += `- Tipo documento: CPF\\n`;\n}\nif (contexto.dados_extraidos_mensagem.hospital_mencionado) {\n infoColetada += `- Hospital preferido: ${contexto.dados_extraidos_mensagem.hospital_mencionado}\\n`;\n}\nif (contexto.dados_extraidos_mensagem.plano_atual) {\n infoColetada += `- Plano atual: ${contexto.dados_extraidos_mensagem.plano_atual}\\n`;\n}\n\nreturn {\n ...$json,\n prompt_sistema: promptSistema,\n contexto_conversa: JSON.stringify(contexto),\n info_ja_coletada: infoColetada\n};"
-         },
-         "id":"8",
-         "name":"Preparar Prompt Mariana",
-         "type":"n8n-nodes-base.code",
-         "typeVersion":2,
-         "position":[
-            1250,
-            400
-         ]
-      },
-      {
-         "parameters":{
-            "resource":"chat",
-            "model":"gpt-4o",
-            "messages":{
-               "values":[
-                  {
-                     "role":"system",
-                     "content":"={{$json.prompt_sistema}}"
-                  },
-                  {
-                     "role":"user",
-                     "content":"CONTEXTO:\n{{$json.contexto_conversa}}\n\nINFO_JA_COLETADA (NÃO PERGUNTAR NOVAMENTE):\n{{$json.info_ja_coletada}}\n\nRETORNE APENAS JSON VÁLIDO:\n{\n \"mensagem_cliente\": \"string\",\n \"classificacao_final\": \"QUENTE|MORNO|FRIO|PORTABILIDADE|ANALISE_HUMANA\",\n \"score_final\": 0-100,\n \"qualificacao_completa\": true|false\n}"
-                  }
-               ]
-            },
-            "options":{
-               "temperature":0.2,
-               "maxTokens":1500,
-               "responseFormat":{
-                  "type":"json_object"
-               }
-            }
-         },
-         "id":"9",
-         "name":"OpenAI Primeira Qualificação",
-         "type":"@n8n/n8n-nodes-langchain.openAi",
-         "position":[
-            1450,
-            300
-         ],
-         "typeVersion":1.3
-      },
-      {
-         "parameters":{
-            "functionCode":"// Processar resposta da OpenAI - Parse Resiliente\nlet r={}; \ntry { r = JSON.parse($json.choices[0]?.message?.content ?? '{}'); } catch(e){ r={}; }\nreturn {\n  ...$json,\n  mensagem_mariana: r.mensagem_cliente ?? $json.mensagem_mariana,\n  eh_portabilidade: r.classificacao_final === 'PORTABILIDADE',\n  classificacao: r.classificacao_final ?? $json.classificacao,\n  score: (r.score_final ?? $json.score),\n  qualificacao_completa: r.qualificacao_completa === true\n};"
-         },
-         "id":"10",
-         "name":"Processar Resposta OpenAI",
-         "type":"n8n-nodes-base.code",
-         "position":[
-            1650,
-            300
-         ],
-         "typeVersion":2
-      },
-      {
-         "parameters":{
-            "conditions":{
-               "boolean":[
-                  {
-                     "value1":"={{$json.eh_portabilidade}}",
-                     "value2":true
-                  }
-               ]
-            }
-         },
-         "id":"11",
-         "name":"É Portabilidade?",
-         "type":"n8n-nodes-base.if",
-         "position":[
-            1850,
-            300
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "method":"POST",
-            "url":"={{$env.EVOLUTION_URL}}/chat/typing/{{$env.EVOLUTION_INSTANCE}}",
-            "sendHeaders":true,
-            "headerParameters":{
-               "parameters":[
-                  {
-                     "name":"Authorization",
-                     "value":"Bearer {{$env.EVOLUTION_TOKEN}}"
-                  },
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            },
-            "sendBody":true,
-            "bodyParameters":{
-               "parameters":[
-                  {
-                     "name":"number",
-                     "value":"={{'55' + $json.telefone_limpo}}"
-                  },
-                  {
-                     "name":"state",
-                     "value":"off"
-                  }
-               ]
-            },
-            "options":{
-               
-            }
-         },
-         "id":"12",
-         "name":"Status Digitando OFF",
-         "type":"n8n-nodes-base.httpRequest",
-         "position":[
-            2250,
-            300
-         ],
-         "typeVersion":4.1
-      },
-      {
-         "parameters":{
-            "amount":3,
-            "unit":"seconds"
-         },
-         "id":"13",
-         "name":"Simular Tempo Digitação",
-         "type":"n8n-nodes-base.wait",
-         "position":[
-            2050,
-            400
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "method":"POST",
-            "url":"={{$env.EVOLUTION_URL}}/message/sendText/{{$env.EVOLUTION_INSTANCE}}",
-            "sendHeaders":true,
-            "headerParameters":{
-               "parameters":[
-                  {
-                     "name":"Authorization",
-                     "value":"Bearer {{$env.EVOLUTION_TOKEN}}"
-                  },
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            },
-            "sendBody":true,
-            "bodyParameters":{
-               "parameters":[
-                  {
-                     "name":"number",
-                     "value":"={{'55' + $json.telefone_limpo}}"
-                  },
-                  {
-                     "name":"text",
-                     "value":"={{$json.mensagem_mariana}}"
-                  }
-               ]
-            },
-            "options":{
-               
-            }
-         },
-         "id":"14",
-         "name":"WhatsApp Enviar Mariana",
-         "type":"n8n-nodes-base.httpRequest",
-         "position":[
-            2450,
-            400
-         ],
-         "typeVersion":4.1
-      },
-      {
-         "parameters":{
-            "method":"POST",
-            "url":"={{$env.EVOLUTION_URL}}/message/sendText/{{$env.EVOLUTION_INSTANCE}}",
-            "sendHeaders":true,
-            "headerParameters":{
-               "parameters":[
-                  {
-                     "name":"Authorization",
-                     "value":"Bearer {{$env.EVOLUTION_TOKEN}}"
-                  },
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            },
-            "sendBody":true,
-            "bodyParameters":{
-               "parameters":[
-                  {
-                     "name":"number",
-                     "value":"={{'55' + $json.telefone_limpo}}"
-                  },
-                  {
-                     "name":"text",
-                     "value":"Olá! 😊 Sobre PORTABILIDADE:\n\nVocê pode pedir a portabilidade sem novas carências se cumprir as regras da ANS.\n\nFaça a solicitação pelo canal oficial da Bradesco Saúde:\n{{$env.BRADESCO_PORTABILIDADE_URL}}\n\nSe quiser, te ajudo a conferir a elegibilidade agora.\n\n— Mariana · Bradesco Saúde"
-                  }
-               ]
-            },
-            "options":{
-               
-            }
-         },
-         "id":"15",
-         "name":"Enviar Link Portabilidade",
-         "type":"n8n-nodes-base.httpRequest",
-         "position":[
-            2450,
-            200
-         ],
-         "typeVersion":4.1
-      },
-      {
-         "parameters":{
-            "path":"whatsapp-webhook-evolution",
-            "responseMode":"responseNode",
-            "options":{
-               "responseData":"firstEntryJson",
-               "responseHeaders":{
-                  "entries":[
-                     {
-                        "name":"Content-Type",
-                        "value":"application/json"
-                     }
-                  ]
-               }
-            }
-         },
-         "id":"16",
-         "name":"Webhook Resposta Cliente WhatsApp",
-         "type":"n8n-nodes-base.webhook",
-         "position":[
-            2450,
-            500
-         ],
-         "typeVersion":1,
-         "webhookId":"resposta-cliente-whatsapp"
-      },
-      {
-         "parameters":{
-            "functionCode":"// Processa resposta do cliente (Evolution / texto ou áudio)\nconst b = $json;\n\n// Compat: normaliza campos Evolution\nb.phone = b.phone || b.number;\nb.message = b.message || { text: (b.text || '') };\n\n// Número\nlet jid = b.number || b.from || b.key?.remoteJid || b.participant || b.chatId || '';\njid = String(jid).replace(/@.*$/,'');\nlet digits = jid.replace(/\\D/g,'');\nif (!digits.startsWith('55') && digits.length >= 10) digits = '55' + digits;\n\n// Texto\nconst text = b.message?.text || b.message?.conversation || b.message?.extendedTextMessage?.text || b.message?.imageMessage?.caption || b.message?.videoMessage?.caption || b.text || '';\n\n// URL de áudio (variações comuns)\nconst audioUrl = b.message?.audio?.url || b.message?.audioMessage?.url || b.audioUrl || '';\n\nreturn {\n telefone_cliente: digits, // 55DDDNÚMERO\n telefone_limpo: digits.replace(/^55/,''), // DDD+NÚMERO\n telefone_invalido: !(digits && digits.replace(/^55/, '').length >= 10 && digits.replace(/^55/, '').length <= 11),\n mensagem_cliente: text || (audioUrl ? '[Áudio recebido]' : ''),\n tipo_mensagem: audioUrl ? 'audio' : 'texto',\n precisa_transcrever: !!audioUrl,\n audio_url: audioUrl,\n timestamp_resposta: new Date().toISOString(),\n webhook_completo: b\n};"
-         },
-         "id":"17",
-         "name":"Processar Resposta Cliente",
-         "type":"n8n-nodes-base.code",
-         "position":[
-            2650,
-            500
-         ],
-         "typeVersion":2
-      },
-      {
-         "parameters":{
-            "conditions":{
-               "boolean":[
-                  {
-                     "value1":"={{$json.precisa_transcrever}}",
-                     "value2":true
-                  }
-               ]
-            }
-         },
-         "id":"18",
-         "name":"É Áudio?",
-         "type":"n8n-nodes-base.if",
-         "position":[
-            3050,
-            500
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "conditions":{
-               "boolean":[
-                  {
-                     "value1":"={{$json.telefone_invalido}}",
-                     "value2":false
-                  }
-               ]
-            }
-         },
-         "id":"64",
-         "name":"Telefone Válido? (Webhook)",
-         "type":"n8n-nodes-base.if",
-         "position":[
-            2850,
-            500
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "method":"POST",
-            "url":"={{$env.EVOLUTION_URL}}/message/sendText/{{$env.EVOLUTION_INSTANCE}}",
-            "sendHeaders":true,
-            "headerParameters":{
-               "parameters":[
-                  {
-                     "name":"Authorization",
-                     "value":"Bearer {{$env.EVOLUTION_TOKEN}}"
-                  },
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            },
-            "sendBody":true,
-            "bodyParameters":{
-               "parameters":[
-                  {
-                     "name":"number",
-                     "value":"={{$json.telefone_cliente}}"
-                  },
-                  {
-                     "name":"text",
-                     "value":"🎧 Recebi seu áudio! Deixa eu ouvir com atenção..."
-                  }
-               ]
-            },
-            "options":{
-               
-            }
-         },
-         "id":"19",
-         "name":"Confirmar Áudio Recebido",
-         "type":"n8n-nodes-base.httpRequest",
-         "position":[
-            3050,
-            600
-         ],
-         "typeVersion":4.1
-      },
-      {
-         "parameters":{
-            "url":"={{$json.audio_url}}",
-            "options":{
-               "response":{
-                  "responseFormat":"file",
-                  "binaryPropertyName":"data"
-               }
-            }
-         },
-         "id":"25",
-         "name":"Baixar Áudio",
-         "type":"n8n-nodes-base.httpRequest",
-         "position":[
-            3050,
-            700
-         ],
-         "typeVersion":4.1
-      },
-      {
-         "parameters":{
-            "resource":"audio",
-            "operation":"transcription",
-            "model":"whisper-1",
-            "binaryPropertyName":"data",
-            "options":{
-               "language":"pt",
-               "temperature":0.2
-            }
-         },
-         "id":"20",
-         "name":"Transcrever Áudio OpenAI",
-         "type":"@n8n/n8n-nodes-langchain.openAi",
-         "position":[
-            3250,
-            600
-         ],
-         "typeVersion":1.3
-      },
-      {
-         "parameters":{
-            "mode":"combine",
-            "combinationMode":"pass-through",
-            "options":{
-               
-            }
-         },
-         "id":"21",
-         "name":"Merge Respostas",
-         "type":"n8n-nodes-base.merge",
-         "position":[
-            3450,
-            500
-         ],
-         "typeVersion":2
-      },
-      {
-         "parameters":{
-            "functionCode":"// Atualiza contexto com resposta do cliente\nconst trans = $json.text || $json.data?.text || $json.transcricao || '[áudio sem texto]';\nconst mensagemCliente = $json.tipo_mensagem === 'audio' ? trans : $json.mensagem_cliente;\nconst contextoAnterior = JSON.parse($json.contexto_conversa || '{}');\n\n// Adiciona ao histórico\ncontextoAnterior.historico = contextoAnterior.historico || [];\ncontextoAnterior.historico.push({\n tipo: 'cliente',\n mensagem: mensagemCliente,\n timestamp: new Date().toISOString()\n});\n\n// Analisa informações fornecidas\nconst msg = mensagemCliente.toLowerCase();\nconst dadosExtraidos = {};\n\n// Extrai idades\nconst idadesMatch = mensagemCliente.match(/\\d{1,2}\\s*anos?/gi);\nif (idadesMatch) {\n dadosExtraidos.idades_encontradas = idadesMatch;\n contextoAnterior.dados_faltantes = contextoAnterior.dados_faltantes.filter(d => d !== 'idades_dependentes');\n}\n\n// Detecta CNPJ/MEI\nif (/cnpj|mei|empresa/.test(msg)) {\n dadosExtraidos.tipo_documento = 'empresa';\n contextoAnterior.dados_faltantes = contextoAnterior.dados_faltantes.filter(d => d !== 'tipo_documento');\n} else if (/cpf|pessoa.?f[íi]sica/.test(msg)) {\n dadosExtraidos.tipo_documento = 'cpf';\n contextoAnterior.dados_faltantes = contextoAnterior.dados_faltantes.filter(d => d !== 'tipo_documento');\n}\n\n// Detecta hospitais\nconst hospitais = ['einstein', 'sirio', 'oswaldo', 'beneficencia', 'samaritano', 'santa catarina', 'sao camilo', '9 de julho', 'copa star'];\nhospitais.forEach(hospital => {\n if (msg.includes(hospital)) {\n dadosExtraidos.hospital_preferencia = hospital;\n contextoAnterior.dados_faltantes = contextoAnterior.dados_faltantes.filter(d => d !== 'hospital_preferencia');\n }\n});\n\n// Detecta planos\nconst planos = ['amil', 'sulamerica', 'unimed', 'notredame', 'hapvida', 'prevent senior'];\nplanos.forEach(plano => {\n if (msg.includes(plano)) {\n dadosExtraidos.plano_atual = plano;\n }\n});\n\n// Detecta doenças\nif (/diabetes|hipertens|pressao alta|cancer|cardiaco|transplante|dialise/.test(msg)) {\n dadosExtraidos.tem_preexistencia = true;\n const doencasGraves = /cancer|transplante|dialise|cardiaco grave/.test(msg);\n if (doencasGraves) {\n dadosExtraidos.doenca_grave = true;\n }\n}\n\n// Atualiza contexto\ncontextoAnterior.dados_coletados = { ...(contextoAnterior.dados_coletados || {}), ...dadosExtraidos };\n\n// Verifica se tem todos os dados\nconst dadosCompletos = contextoAnterior.dados_faltantes.length === 0;\n\nreturn {\n ...$json,\n mensagem_cliente_processada: mensagemCliente,\n dados_extraidos: dadosExtraidos,\n contexto_atualizado: JSON.stringify(contextoAnterior),\n dados_completos: dadosCompletos,\n total_interacoes: contextoAnterior.historico.length\n};"
-         },
-         "id":"22",
-         "name":"Atualizar Contexto Conversa",
-         "type":"n8n-nodes-base.code",
-         "position":[
-            3650,
-            500
-         ],
-         "typeVersion":2
-      },
-      {
-         "parameters":{
-            "conditions":{
-               "boolean":[
-                  {
-                     "value1":"={{$json.dados_completos}}",
-                     "value2":true
-                  }
-               ]
-            }
-         },
-         "id":"23",
-         "name":"Dados Completos?",
-         "type":"n8n-nodes-base.if",
-         "position":[
-            3850,
-            500
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "resource":"chat",
-            "model":"gpt-4o",
-            "messages":{
-               "values":[
-                  {
-                     "role":"system",
-                     "content":"={{$json.prompt_sistema}}"
-                  },
-                  {
-                     "role":"user",
-                     "content":"CONTEXTO:\n{{$json.contexto_atualizado}}\n\nINFO_JA_COLETADA (NÃO PERGUNTAR NOVAMENTE):\n{{$json.info_ja_coletada}}\n\nRETORNE APENAS JSON VÁLIDO:\n{\n \"mensagem_cliente\": \"string\",\n \"classificacao_final\": \"QUENTE|MORNO|FRIO|PORTABILIDADE|ANALISE_HUMANA\",\n \"score_final\": 0-100,\n \"qualificacao_completa\": true|false\n}"
-                  }
-               ]
-            },
-            "options":{
-               "temperature":0.7,
-               "maxTokens":1500,
-               "responseFormat":{
-                  "type":"json_object"
-               }
-            }
-         },
-         "id":"24",
-         "name":"OpenAI Continuar Conversa",
-         "type":"@n8n/n8n-nodes-langchain.openAi",
-         "position":[
-            4050,
-            600
-         ],
-         "typeVersion":1.3
-      },
-      {
-         "parameters":{
-            "functionCode":"// Preparar resumo completo para vendedor\nconst contexto = JSON.parse($json.contexto_atualizado);\nconst dados = contexto.dados_coletados || {};\nconst dadosIniciais = contexto.dados_ja_coletados || {};\n\n// Monta resumo estruturado\nconst resumo = {\n lead_id: $json.lead_id,\n nome: dadosIniciais.nome,\n telefone: dadosIniciais.telefone,\n email: dadosIniciais.email,\n cidade_estado: `${dadosIniciais.cidade}/${dadosIniciais.estado}`,\n idade_titular: dadosIniciais.idade_titular,\n total_vidas: dadosIniciais.total_vidas,\n idades_dependentes: dados.idades_encontradas ? dados.idades_encontradas.join(', ') : 'Não informado',\n tipo_contratacao: dados.tipo_documento === 'empresa' ? 'CNPJ/MEI' : dados.tipo_documento === 'cpf' ? 'CPF' : 'Não informado',\n hospital_preferencia: dados.hospital_preferencia || 'Nenhum específico',\n plano_atual: dados.plano_atual || 'Não possui',\n tem_preexistencia: dados.tem_preexistencia ? 'Sim' : 'Não',\n doenca_grave: dados.doenca_grave ? 'Sim' : 'Não',\n classificacao: contexto.classificacao_inicial,\n score: contexto.score,\n timestamp_qualificacao: new Date().toISOString()\n};\n\n// Determina plano sugerido\nlet plano_sugerido = 'Efetivo';\nif (dados.hospital_preferencia) {\n if (['einstein', 'sirio'].includes(dados.hospital_preferencia)) {\n plano_sugerido = 'Nacional Plus ou Premium';\n } else if (['oswaldo', 'santa catarina'].includes(dados.hospital_preferencia)) {\n plano_sugerido = 'Nacional';\n } else if (['9 de julho', 'santa joana'].includes(dados.hospital_preferencia)) {\n plano_sugerido = 'Ideal';\n } else if (['sao camilo', 'santa paula'].includes(dados.hospital_preferencia)) {\n plano_sugerido = 'Flex';\n }\n}\n\n// Documentos necessários\nlet documentos = ['RG', 'CPF', 'Comprovante de residência'];\nif (dados.tipo_documento === 'empresa') {\n documentos.push('Cartão CNPJ', 'Contrato Social', 'Última alteração contratual');\n}\nif (dados.tem_preexistencia) {\n documentos.push('Relatórios médicos', 'Receitas atuais');\n}\nif (dados.plano_atual) {\n documentos.push('Carteirinha plano atual', '3 últimos boletos pagos');\n}\n\nresumo.plano_sugerido = plano_sugerido;\nresumo.documentos_necessarios = documentos.join(', ');\n\nreturn {\n ...$json,\n resumo_vendedor: resumo,\n mensagem_vendedor_formatada: `\n🔥 LEAD QUALIFICADO - ${resumo.classificacao}\n━━━━━━━━━━━━━━━━━━━━━━━\n👤 ${resumo.nome}\n📱 ${resumo.telefone}\n📍 ${resumo.cidade_estado}\n━━━━━━━━━━━━━━━━━━━━━━━\n\n📊 DADOS DO GRUPO:\n• Titular: ${resumo.idade_titular} anos\n• Total de vidas: ${resumo.total_vidas}\n• Dependentes: ${resumo.idades_dependentes}\n• Contratação: ${resumo.tipo_contratacao}\n\n🏥 PREFERÊNCIAS:\n• Hospital: ${resumo.hospital_preferencia}\n• Plano atual: ${resumo.plano_atual}\n• Preexistência: ${resumo.tem_preexistencia}\n\n💼 SUGESTÃO: ${resumo.plano_sugerido}\n📄 DOCUMENTOS: ${resumo.documentos_necessarios}\n\n⭐ SCORE: ${resumo.score}/100\n\n`\n};"
-         },
-         "id":"26",
-         "name":"Preparar Resumo Vendedor Completo",
-         "type":"n8n-nodes-base.code",
-         "position":[
-            4050,
-            400
-         ],
-         "typeVersion":2
-      },
-      {
-         "parameters":{
-            "conditions":{
-               "string":[
-                  {
-                     "value1":"={{$json.resumo_vendedor.classificacao}}",
-                     "operation":"oneOf",
-                     "value2":"QUENTE,MORNO,FRIO,PORTABILIDADE,ANALISE_HUMANA"
-                  }
-               ]
-            },
-            "fallbackOutput":"always"
-         },
-         "id":"27",
-         "name":"Selecionar Destinos",
-         "type":"n8n-nodes-base.switch",
-         "position":[
-            4250,
-            400
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "operation":"append",
-            "sheetId":"{{$env.SHEET_ID_QUALIFICADOS}}",
-            "sheetName":"Leads_Qualificados",
-            "columns":{
-               "mappingMode":"defineBelow",
-               "value":{
-                  "Lead_ID":"={{$json.resumo_vendedor.lead_id}}",
-                  "Nome":"={{$json.resumo_vendedor.nome}}",
-                  "Telefone":"={{$json.resumo_vendedor.telefone}}",
-                  "Email":"={{$json.resumo_vendedor.email}}",
-                  "Cidade_Estado":"={{$json.resumo_vendedor.cidade_estado}}",
-                  "Idade_Titular":"={{$json.resumo_vendedor.idade_titular}}",
-                  "Total_Vidas":"={{$json.resumo_vendedor.total_vidas}}",
-                  "Idades_Dependentes":"={{$json.resumo_vendedor.idades_dependentes}}",
-                  "Tipo_Contratacao":"={{$json.resumo_vendedor.tipo_contratacao}}",
-                  "Hospital_Preferencia":"={{$json.resumo_vendedor.hospital_preferencia}}",
-                  "Plano_Atual":"={{$json.resumo_vendedor.plano_atual}}",
-                  "Preexistencia":"={{$json.resumo_vendedor.tem_preexistencia}}",
-                  "Doenca_Grave":"={{$json.resumo_vendedor.doenca_grave}}",
-                  "Classificacao":"={{$json.resumo_vendedor.classificacao}}",
-                  "Score":"={{$json.resumo_vendedor.score}}",
-                  "Plano_Sugerido":"={{$json.resumo_vendedor.plano_sugerido}}",
-                  "Documentos":"={{$json.resumo_vendedor.documentos_necessarios}}",
-                  "Data_Qualificacao":"={{$json.resumo_vendedor.timestamp_qualificacao}}",
-                  "Status":"Qualificado - Aguardando Vendedor"
-               }
-            },
-            "options":{
-               
-            }
-         },
-         "id":"28",
-         "name":"Salvar Leads Qualificados",
-         "type":"n8n-nodes-base.googleSheets",
-         "position":[
-            4450,
-            200
-         ],
-         "typeVersion":4
-      },
-      {
-         "parameters":{
-            "sendTo":"{{$env.VENDOR_DEFAULT_EMAIL}}",
-            "subject":"🔥 {{$json.resumo_vendedor.classificacao}} - {{$json.resumo_vendedor.nome}} | Score: {{$json.resumo_vendedor.score}}",
-            "emailType":"html",
-            "message":"<div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>\n <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0;'>\n <h1 style='color: white; margin: 0; text-align: center;'>🎯 LEAD QUALIFICADO</h1>\n <h2 style='color: white; margin: 10px 0 0 0; text-align: center;'>{{$json.resumo_vendedor.classificacao}} - Score: {{$json.resumo_vendedor.score}}/100</h2>\n </div>\n \n <div style='background: white; padding: 30px; border: 1px solid #e0e0e0; border-top: 0;'>\n <div style='background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;'>\n <h3 style='color: #333; margin-top: 0;'>👤 Dados do Cliente</h3>\n <p style='margin: 5px 0;'><strong>Nome:</strong> {{$json.resumo_vendedor.nome}}</p>\n <p style='margin: 5px 0;'><strong>Telefone:</strong> <a href='tel:{{$json.resumo_vendedor.telefone}}'>{{$json.resumo_vendedor.telefone}}</a></p>\n <p style='margin: 5px 0;'><strong>Email:</strong> <a href='mailto:{{$json.resumo_vendedor.email}}'>{{$json.resumo_vendedor.email}}</a></p>\n <p style='margin: 5px 0;'><strong>Localização:</strong> {{$json.resumo_vendedor.cidade_estado}}</p>\n </div>\n \n <div style='background: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px;'>\n <h3 style='color: #333; margin-top: 0;'>📊 Informações do Grupo</h3>\n <p style='margin: 5px 0;'><strong>Idade Titular:</strong> {{$json.resumo_vendedor.idade_titular}} anos</p>\n <p style='margin: 5px 0;'><strong>Total de Vidas:</strong> {{$json.resumo_vendedor.total_vidas}}</p>\n <p style='margin: 5px 0;'><strong>Dependentes:</strong> {{$json.resumo_vendedor.idades_dependentes}}</p>\n <p style='margin: 5px 0;'><strong>Tipo de Contratação:</strong> {{$json.resumo_vendedor.tipo_contratacao}}</p>\n </div>\n \n <div style='background: #d4edda; padding: 20px; border-radius: 8px; margin-bottom: 20px;'>\n <h3 style='color: #333; margin-top: 0;'>🏥 Preferências e Histórico</h3>\n <p style='margin: 5px 0;'><strong>Hospital Preferido:</strong> {{$json.resumo_vendedor.hospital_preferencia}}</p>\n <p style='margin: 5px 0;'><strong>Plano Atual:</strong> {{$json.resumo_vendedor.plano_atual}}</p>\n <p style='margin: 5px 0;'><strong>Preexistência:</strong> {{$json.resumo_vendedor.tem_preexistencia}}</p>\n <p style='margin: 5px 0;'><strong>Doença Grave:</strong> {{$json.resumo_vendedor.doenca_grave}}</p>\n </div>\n \n <div style='background: #cfe2ff; padding: 20px; border-radius: 8px;'>\n <h3 style='color: #333; margin-top: 0;'>💼 Recomendações</h3>\n <p style='margin: 5px 0;'><strong>Plano Sugerido:</strong> <span style='background: #28a745; color: white; padding: 3px 10px; border-radius: 3px;'>{{$json.resumo_vendedor.plano_sugerido}}</span></p>\n <p style='margin: 5px 0;'><strong>Documentos Necessários:</strong></p>\n <p style='margin: 5px 0 5px 20px; font-size: 14px;'>{{$json.resumo_vendedor.documentos_necessarios}}</p>\n </div>\n \n <div style='text-align: center; margin-top: 30px;'>\n <a href='https://wa.me/{{$json.telefone_cliente}}' style='display: inline-block; background: #25D366; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;'>💬 Contatar via WhatsApp</a>\n </div>\n </div>\n \n <div style='background: #f8f9fa; padding: 15px; text-align: center; border-radius: 0 0 10px 10px;'>\n <p style='margin: 0; color: #666; font-size: 12px;'>Lead qualificado em {{$json.resumo_vendedor.timestamp_qualificacao}}</p>\n </div>\n</div>",
-            "options":{
-               
-            }
-         },
-         "id":"29",
-         "name":"Email Vendedor Rico Formatado",
-         "type":"n8n-nodes-base.gmail",
-         "position":[
-            4450,
-            300
-         ],
-         "typeVersion":2.1
-      },
-      {
-         "parameters":{
-            "method":"POST",
-            "url":"={{$env.EVOLUTION_URL}}/message/sendText/{{$env.EVOLUTION_INSTANCE}}",
-            "sendHeaders":true,
-            "headerParameters":{
-               "parameters":[
-                  {
-                     "name":"Authorization",
-                     "value":"Bearer {{$env.EVOLUTION_TOKEN}}"
-                  },
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            },
-            "sendBody":true,
-            "bodyParameters":{
-               "parameters":[
-                  {
-                     "name":"number",
-                     "value":"={{$env.VENDORS_LIST}}"
-                  },
-                  {
-                     "name":"text",
-                     "value":"={{$json.mensagem_vendedor_formatada}}"
-                  }
-               ]
-            },
-            "options":{
-               
-            }
-         },
-         "id":"30",
-         "name":"WhatsApp Vendedor",
-         "type":"n8n-nodes-base.httpRequest",
-         "position":[
-            4450,
-            400
-         ],
-         "typeVersion":4.1
-      },
-      {
-         "parameters":{
-            "method":"POST",
-            "url":"https://api.agendor.com.br/v3/deals",
-            "sendHeaders":true,
-            "headerParameters":{
-               "parameters":[
-                  {
-                     "name":"Authorization",
-                     "value":"Token {{$env.AGENDOR_TOKEN}}"
-                  },
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            },
-            "sendBody":true,
-            "bodyParameters":{
-               "parameters":[
-                  {
-                     "name":"title",
-                     "value":"={{$json.resumo_vendedor.nome}} - Bradesco {{$json.resumo_vendedor.plano_sugerido}}"
-                  },
-                  {
-                     "name":"value",
-                     "value":"={{$json.resumo_vendedor.total_vidas * 350}}"
-                  },
-                  {
-                     "name":"contact",
-                     "value":"={\n \"name\": \"{{$json.resumo_vendedor.nome}}\",\n \"email\": \"{{$json.resumo_vendedor.email}}\",\n \"phone\": \"{{$json.resumo_vendedor.telefone}}\",\n \"city\": \"{{$json.resumo_vendedor.cidade_estado}}\"\n}"
-                  },
-                  {
-                     "name":"description",
-                     "value":"={{$json.mensagem_vendedor_formatada}}"
-                  },
-                  {
-                     "name":"ranking",
-                     "value":"={{$json.resumo_vendedor.score}}"
-                  },
-                  {
-                     "name":"dealStage",
-                     "value":"1"
-                  }
-               ]
-            },
-            "options":{
-               
-            }
-         },
-         "id":"31",
-         "name":"Criar Deal Agendor",
-         "type":"n8n-nodes-base.httpRequest",
-         "position":[
-            4450,
-            500
-         ],
-         "typeVersion":4.1
-      },
-      {
-         "parameters":{
-            "method":"POST",
-            "url":"={{$env.EVOLUTION_URL}}/message/sendText/{{$env.EVOLUTION_INSTANCE}}",
-            "sendHeaders":true,
-            "headerParameters":{
-               "parameters":[
-                  {
-                     "name":"Authorization",
-                     "value":"Bearer {{$env.EVOLUTION_TOKEN}}"
-                  },
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            },
-            "sendBody":true,
-            "bodyParameters":{
-               "parameters":[
-                  {
-                     "name":"number",
-                     "value":"={{'55' + $json.telefone_limpo}}"
-                  },
-                  {
-                     "name":"text",
-                     "value":"Perfeito! 🎉\n\nJá tenho todas as informações necessárias.\n\nUm consultor especializado entrará em contato com você em breve com uma proposta personalizada.\n\nEnquanto isso, se tiver alguma dúvida, pode me chamar aqui!\n\n— Mariana · Bradesco Saúde"
-                  }
-               ]
-            },
-            "options":{
-               
-            }
-         },
-         "id":"32",
-         "name":"Mensagem Final Cliente",
-         "type":"n8n-nodes-base.httpRequest",
-         "position":[
-            4650,
-            400
-         ],
-         "typeVersion":4.1
-      },
-      {
-         "parameters":{
-            "amount":300,
-            "unit":"seconds"
-         },
-         "id":"33",
-         "name":"Timer 5 minutos",
-         "type":"n8n-nodes-base.wait",
-         "position":[
-            4850,
-            400
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "method":"POST",
-            "url":"={{$env.EVOLUTION_URL}}/message/sendText/{{$env.EVOLUTION_INSTANCE}}",
-            "sendHeaders":true,
-            "headerParameters":{
-               "parameters":[
-                  {
-                     "name":"Authorization",
-                     "value":"Bearer {{$env.EVOLUTION_TOKEN}}"
-                  },
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            },
-            "sendBody":true,
-            "bodyParameters":{
-               "parameters":[
-                  {
-                     "name":"number",
-                     "value":"={{'55' + $json.telefone_limpo}}"
-                  },
-                  {
-                     "name":"text",
-                     "value":"Oi {{$json.nome}}, ainda estou por aqui! 😊\n\nVi que você demonstrou interesse no Bradesco Saúde.\n\nPosso te ajudar com alguma dúvida específica?\n\nÉ super rápido montar sua proposta!\n\n— Mariana · Bradesco Saúde"
-                  }
-               ]
-            },
-            "options":{
-               
-            }
-         },
-         "id":"34",
-         "name":"Reengajamento 5min",
-         "type":"n8n-nodes-base.httpRequest",
-         "position":[
-            5050,
-            400
-         ],
-         "typeVersion":4.1
-      },
-      {
-         "parameters":{
-            "rule":{
-               "cron":[
-                  {
-                     "hour":10,
-                     "minute":0
-                  }
-               ]
-            }
-         },
-         "id":"35",
-         "name":"Schedule Diário 10:00",
-         "type":"n8n-nodes-base.scheduleTrigger",
-         "position":[
-            250,
-            700
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "operation":"read",
-            "sheetId":"{{$env.SHEET_ID_BRUTOS}}",
-            "sheetName":"Leads_Brutos",
-            "filtersUI":{
-               "values":[
-                  {
-                     "lookupColumn":"Status",
-                     "lookupValue":"Novo - Aguardando IA"
-                  }
-               ]
-            },
-            "options":{
-               
-            }
-         },
-         "id":"36",
-         "name":"Buscar Leads Pendentes",
-         "type":"n8n-nodes-base.googleSheets",
-         "position":[
-            450,
-            700
-         ],
-         "typeVersion":4
-      },
-      {
-         "parameters":{
-            "batchSize":1,
-            "options":{
-               
-            }
-         },
-         "id":"37",
-         "name":"Loop Leads",
-         "type":"n8n-nodes-base.splitInBatches",
-         "position":[
-            650,
-            700
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "method":"POST",
-            "url":"={{$env.EVOLUTION_URL}}/message/sendText/{{$env.EVOLUTION_INSTANCE}}",
-            "sendHeaders":true,
-            "headerParameters":{
-               "parameters":[
-                  {
-                     "name":"Authorization",
-                     "value":"Bearer {{$env.EVOLUTION_TOKEN}}"
-                  },
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            },
-            "sendBody":true,
-            "bodyParameters":{
-               "parameters":[
-                  {
-                     "name":"number",
-                     "value":"={{'55' + $json['Telefone com DDD'].replace(/\\D/g,'')}}"
-                  },
-                  {
-                     "name":"text",
-                     "value":"Bom dia {{$json['Nome Completo']}}! ☀️\n\nOntem você demonstrou interesse no Bradesco Saúde.\n\nAinda precisa de um plano de saúde?\n\nConsigo valores especiais para contratação hoje! 💙\n\nÉ só me responder aqui.\n\n— Mariana · Bradesco Saúde"
-                  }
-               ]
-            },
-            "options":{
-               
-            }
-         },
-         "id":"38",
-         "name":"Mensagem Dia Seguinte",
-         "type":"n8n-nodes-base.httpRequest",
-         "position":[
-            850,
-            700
-         ],
-         "typeVersion":4.1
-      },
-      {
-         "parameters":{
-            "amount":30,
-            "unit":"seconds"
-         },
-         "id":"39",
-         "name":"Intervalo Entre Mensagens",
-         "type":"n8n-nodes-base.wait",
-         "position":[
-            1050,
-            700
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "operation":"update",
-            "sheetId":"{{$env.SHEET_ID_BRUTOS}}",
-            "sheetName":"Leads_Brutos",
-            "updateKey":"Lead_ID",
-            "value":"={{$json['Lead_ID']}}",
-            "columns":{
-               "mappingMode":"defineBelow",
-               "value":{
-                  "Status":"Remarketing Enviado",
-                  "Remarketing_Data":"={{$now}}"
-               }
-            },
-            "options":{
-               
-            }
-         },
-         "id":"40",
-         "name":"Atualizar Status Remarketing",
-         "type":"n8n-nodes-base.googleSheets",
-         "position":[
-            1250,
-            700
-         ],
-         "typeVersion":4
-      },
-      {
-         "parameters":{
-            "respondWith":"json",
-            "responseBody":"{\"ok\": true}",
-            "responseHeaders":{
-               "entries":[
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            }
-         },
-         "id":"57",
-         "name":"Responder Webhook Landing",
-         "type":"n8n-nodes-base.respondToWebhook",
-         "position":[
-            2650,
-            250
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "respondWith":"json",
-            "responseBody":"{\"ok\": true}",
-            "responseHeaders":{
-               "entries":[
-                  {
-                     "name":"Content-Type",
-                     "value":"application/json"
-                  }
-               ]
-            }
-         },
-         "id":"58",
-         "name":"Responder Webhook Cliente",
-         "type":"n8n-nodes-base.respondToWebhook",
-         "position":[
-            3650,
-            850
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "conditions":{
-               "boolean":[
-                  {
-                     "value1":"={{$json.telefone_invalido}}",
-                     "value2":false
-                  }
-               ]
-            }
-         },
-         "id":"56",
-         "name":"Telefone Válido? (Inicial)",
-         "type":"n8n-nodes-base.if",
-         "position":[
-            850,
-            250
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "conditions":{
-               "boolean":[
-                  {
-                     "value1":"={{$json.telefone_invalido}}",
-                     "value2":false
-                  }
-               ]
-            }
-         },
-         "id":"60",
-         "name":"Telefone Válido? (Cliente)",
-         "type":"n8n-nodes-base.if",
-         "position":[
-            4250,
-            650
-         ],
-         "typeVersion":1
-      },
-      {
-         "parameters":{
-            "conditions":{
-               "boolean":[
-                  {
-                     "value1":"={{$json.telefone_invalido}}",
-                     "value2":false
-                  }
-               ]
-            }
-         },
-         "id":"61",
-         "name":"Telefone Válido? (Final)",
-         "type":"n8n-nodes-base.if",
-         "position":[
-            4950,
-            260
-         ],
-         "typeVersion":1
+      "id": "log-reengajamento-rodrigo-001",
+      "name": "📊 Log Reengajamento (Rodrigo)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2200,
+        360
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZRCcorwTkMjhn6EC",
+          "name": "Google Sheets account"
+        }
       }
-   ],
-   "connections":{
-      "Recebe Formulário Landing":{
-         "main":[
-            [
-               {
-                  "node":"Processar Dados Iniciais",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1bUg8Kqhl_4dhIy_unfqqBYqhV9ICrGyHu3muv0LW1Hk",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Falhas_Reengajamento",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{$json.log_erro_reengajamento.timestamp}}",
+            "Lead_ID": "={{$json.log_erro_reengajamento.lead_id}}",
+            "Tipo_Erro": "={{$json.log_erro_reengajamento.tipo_erro}}",
+            "Motivo_Falha": "={{$json.log_erro_reengajamento.tipo_erro === 'telefone_invalido' ? 'Telefone com menos de 11 dígitos' : $json.log_erro_reengajamento.tipo_erro}}",
+            "Mensagem_Erro": "={{$json.log_erro_reengajamento.mensagem_erro}}",
+            "Tentativas": "={{$json.log_erro_reengajamento.tentativas}}",
+            "Deve_Reprocessar": "={{$json.log_erro_reengajamento.deve_reprocessar}}",
+            "Contexto": "={{$json.log_erro_reengajamento.contexto}}",
+            "Nome_Cliente": "={{$json.log_erro_reengajamento.dados_originais.nome}}",
+            "Nome_Normalizado": "={{$json.nome_normalizado}}",
+            "Telefone_Cliente": "={{$json['Telefone com DDD'] || $json.telefone_limpo}}",
+            "Telefone_Normalizado": "={{$json.telefone_normalizado}}",
+            "Email_Cliente": "={{$json.log_erro_reengajamento.dados_originais.email}}",
+            "Status_Envio": "erro",
+            "Mensagem_Enviada": "={{$json.mensagem_reengajamento}}"
+          }
+        },
+        "options": {}
       },
-      "Processar Dados Iniciais":{
-         "main":[
-            [
-               {
-                  "node":"Salvar Google Sheets Brutos",
-                  "type":"main",
-                  "index":0
-               },
-               {
-                  "node":"Email Controle Interno",
-                  "type":"main",
-                  "index":0
-               },
-               {
-                  "node":"Telefone Válido? (Inicial)",
-                  "type":"main",
-                  "index":0
-               },
-               {
-                  "node":"Responder Webhook Landing",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Telefone Válido? (Inicial)":{
-         "main":[
-            [
-               {
-                  "node":"WhatsApp Resposta Inicial",
-                  "type":"main",
-                  "index":0
-               }
-            ],
-            [
-               
-            ]
-         ]
-      },
-      "WhatsApp Resposta Inicial":{
-         "main":[
-            [
-               {
-                  "node":"Aguardar Resposta ou 50seg",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Aguardar Resposta ou 50seg":{
-         "main":[
-            [
-               {
-                  "node":"Status Digitando ON",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Status Digitando ON":{
-         "main":[
-            [
-               {
-                  "node":"Preparar Prompt Mariana",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Preparar Prompt Mariana":{
-         "main":[
-            [
-               {
-                  "node":"OpenAI Primeira Qualificação",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "OpenAI Primeira Qualificação":{
-         "main":[
-            [
-               {
-                  "node":"Processar Resposta OpenAI",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Processar Resposta OpenAI":{
-         "main":[
-            [
-               {
-                  "node":"É Portabilidade?",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "É Portabilidade?":{
-         "main":[
-            [
-               {
-                  "node":"Enviar Link Portabilidade",
-                  "type":"main",
-                  "index":0
-               }
-            ],
-            [
-               {
-                  "node":"Simular Tempo Digitação",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Simular Tempo Digitação":{
-         "main":[
-            [
-               {
-                  "node":"Status Digitando OFF",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Status Digitando OFF":{
-         "main":[
-            [
-               {
-                  "node":"WhatsApp Enviar Mariana",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Webhook Resposta Cliente WhatsApp":{
-         "main":[
-            [
-               {
-                  "node":"Processar Resposta Cliente",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Processar Resposta Cliente":{
-         "main":[
-            [
-               {
-                  "node":"Telefone Válido? (Webhook)",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Telefone Válido? (Webhook)":{
-         "main":[
-            [
-               {
-                  "node":"É Áudio?",
-                  "type":"main",
-                  "index":0
-               }
-            ],
-            [
-               
-            ]
-         ]
-      },
-      "É Áudio?":{
-         "main":[
-            [
-               {
-                  "node":"Confirmar Áudio Recebido",
-                  "type":"main",
-                  "index":0
-               }
-            ],
-            [
-               {
-                  "node":"Merge Respostas",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Confirmar Áudio Recebido":{
-         "main":[
-            [
-               {
-                  "node":"Baixar Áudio",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Baixar Áudio":{
-         "main":[
-            [
-               {
-                  "node":"Transcrever Áudio OpenAI",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Transcrever Áudio OpenAI":{
-         "main":[
-            [
-               {
-                  "node":"Merge Respostas",
-                  "type":"main",
-                  "index":1
-               }
-            ]
-         ]
-      },
-      "Merge Respostas":{
-         "main":[
-            [
-               {
-                  "node":"Atualizar Contexto Conversa",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Atualizar Contexto Conversa":{
-         "main":[
-            [
-               {
-                  "node":"Dados Completos?",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Dados Completos?":{
-         "main":[
-            [
-               {
-                  "node":"Preparar Resumo Vendedor Completo",
-                  "type":"main",
-                  "index":0
-               }
-            ],
-            [
-               {
-                  "node":"OpenAI Continuar Conversa",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "OpenAI Continuar Conversa":{
-         "main":[
-            [
-               {
-                  "node":"Telefone Válido? (Cliente)",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Telefone Válido? (Cliente)":{
-         "main":[
-            [
-               {
-                  "node":"Processar Resposta OpenAI (loop)",
-                  "type":"main",
-                  "index":0
-               }
-            ],
-            [
-               
-            ]
-         ]
-      },
-      "Preparar Resumo Vendedor Completo":{
-         "main":[
-            [
-               {
-                  "node":"Selecionar Destinos",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Selecionar Destinos":{
-         "main":[
-            [
-               {
-                  "node":"Salvar Leads Qualificados",
-                  "type":"main",
-                  "index":0
-               },
-               {
-                  "node":"Email Vendedor Rico Formatado",
-                  "type":"main",
-                  "index":0
-               },
-               {
-                  "node":"WhatsApp Vendedor",
-                  "type":"main",
-                  "index":0
-               },
-               {
-                  "node":"Criar Deal Agendor",
-                  "type":"main",
-                  "index":0
-               },
-               {
-                  "node":"Mensagem Final Cliente",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Mensagem Final Cliente":{
-         "main":[
-            [
-               {
-                  "node":"Timer 5 minutos",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Timer 5 minutos":{
-         "main":[
-            [
-               {
-                  "node":"Reengajamento 5min",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Schedule Diário 10:00":{
-         "main":[
-            [
-               {
-                  "node":"Buscar Leads Pendentes",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Buscar Leads Pendentes":{
-         "main":[
-            [
-               {
-                  "node":"Loop Leads",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Loop Leads":{
-         "main":[
-            [
-               {
-                  "node":"Mensagem Dia Seguinte",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Mensagem Dia Seguinte":{
-         "main":[
-            [
-               {
-                  "node":"Intervalo Entre Mensagens",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Intervalo Entre Mensagens":{
-         "main":[
-            [
-               {
-                  "node":"Atualizar Status Remarketing",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Atualizar Status Remarketing":{
-         "main":[
-            [
-               {
-                  "node":"Loop Leads",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Processar Resposta OpenAI (loop)":{
-         "main":[
-            [
-               {
-                  "node":"Condição de Parada Loop",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Condição de Parada Loop":{
-         "main":[
-            [
-               {
-                  "node":"Preparar Resumo Vendedor Completo",
-                  "type":"main",
-                  "index":0
-               }
-            ],
-            [
-               {
-                  "node":"WhatsApp Enviar Mariana (continuação)",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "WhatsApp Enviar Mariana (continuação)":{
-         "main":[
-            [
-               {
-                  "node":"Webhook Resposta Cliente WhatsApp",
-                  "type":"main",
-                  "index":0
-               }
-            ]
-         ]
-      },
-      "Responder Webhook Cliente":{
-         "main":[
-            [
-               
-            ]
-         ]
+      "id": "log-falhas-rodrigo-001",
+      "name": "📊 Log Falhas Reengajamento (Rodrigo)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2000,
+        360
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZRCcorwTkMjhn6EC",
+          "name": "Google Sheets account"
+        }
       }
-   }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "if-http-2xx-min",
+              "leftValue": "={{ $json.statusCode || 0 }}",
+              "rightValue": "200",
+              "operator": {
+                "type": "number",
+                "operation": "largerEqual"
+              }
+            },
+            {
+              "id": "if-http-2xx-max",
+              "leftValue": "={{ $json.statusCode || 0 }}",
+              "rightValue": "300",
+              "operator": {
+                "type": "number",
+                "operation": "smaller"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-envio-2xx-001",
+      "name": "✅ IF Envio 2xx",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Marcar telefone inválido para log em Log_Falhas_Reengajamento\nconst items = $input.all();\nconst out = items.map((it) => {\n  const d = it.json;\n  const telefoneBruto = String(d.telefone_normalizado || d['Telefone com DDD'] || '').replace(/\\\\D/g, '');\n  const log = {\n    timestamp: new Date().toISOString(),\n    lead_id: d.Lead_ID || 'desconhecido',\n    tipo_erro: 'telefone_invalido',\n    mensagem_erro: `telefone_comprimento_${telefoneBruto.length}`,\n    tentativas: Number(d.Tentativas_Reengajamento || 0),\n    deve_reprocessar: false,\n    contexto: 'reengajamento',\n    dados_originais: {\n      nome: d.nome_normalizado || d.Nome_Completo || d['Nome Completo'] || 'Cliente',\n      telefone: d['Telefone com DDD'] || d.telefone_limpo || '',\n      email: d.Email || ''\n    }\n  };\n  return { json: { ...d, log_erro_reengajamento: log, mensagem_reengajamento: d.mensagem_reengajamento || '' } };\n});\nreturn out;"
+      },
+      "id": "codigo-telefone-invalido-001",
+      "name": "🛑 Telefone Inválido (Log)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "1bGuTWcNCMjTed91deAZo8eGwy38tqWh8C7rU6PPG27M",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads_Brutos",
+          "mode": "name"
+        },
+        "options": {
+          "range": "A:Z",
+          "includeEmptyCells": false
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Status",
+              "lookupValue": "Aguardando_5min"
+            },
+            {
+              "lookupColumn": "Ultima_Resposta_Cliente",
+              "lookupValue": "",
+              "condition": "isEmpty"
+            },
+            {
+              "lookupColumn": "Tentativas_Reengajamento",
+              "lookupValue": "3",
+              "condition": "smaller"
+            }
+          ]
+        }
+      },
+      "id": "663a32b1-539f-4832-85f6-7e48c9e066b6",
+      "name": "📊 Buscar Leads Pendentes",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        460,
+        300
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZRCcorwTkMjhn6EC",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// FILTRAR LEADS PARA REENGAJAMENTO - HORÁRIO COMERCIAL\n// ========================================\n// Filtra leads respeitando horário comercial (8h-18h, seg-sex)\n\nconst dados = $input.all();\nconst leadsParaReengajamento = [];\n\n// ========== VERIFICAÇÃO DE HORÁRIO COMERCIAL ==========\nconst agora = new Date();\nconst hora = agora.getHours();\nconst dia = agora.getDay(); // 0=domingo, 1=segunda, ..., 6=sábado\n\n// Horário comercial: 8h às 18h, segunda a sexta\nconst HORARIO_COMERCIAL = {\n  hora_inicio: 8,\n  hora_fim: 18,\n  dias_semana: [1, 2, 3, 4, 5] // Segunda a sexta\n};\n\n// Verificar se está no horário comercial\nconst estaNoHorarioComercial = (\n  hora >= HORARIO_COMERCIAL.hora_inicio &&\n  hora < HORARIO_COMERCIAL.hora_fim &&\n  HORARIO_COMERCIAL.dias_semana.includes(dia)\n);\n\nconsole.log(`Horário atual: ${hora}h, Dia: ${dia} (0=dom, 1=seg...)`);\nconsole.log(`Horário comercial: ${estaNoHorarioComercial ? 'SIM' : 'NÃO'}`);\n\n// Se NÃO está no horário comercial, não processa nenhum lead\nif (!estaNoHorarioComercial) {\n  console.log('⏰ Fora do horário comercial - aguardando próximo horário');\n  return [];\n}\n\n// ========== CONFIGURAÇÕES DE REENGAJAMENTO ==========\nconst CONFIG_REENGAJAMENTO = {\n  status_para_reengajamento: ['Aguardando_5min'],\n  max_tentativas: 3,\n  intervalo_minutos: 5 // Intervalo mínimo entre tentativas\n};\n\n// Função para verificar se pode reengajar\nfunction podeReengajar(lead) {\n  // Verificar se tem dados básicos\n  if (!lead.Lead_ID || !lead['Telefone com DDD']) {\n    return false;\n  }\n  \n  // Verificar se cliente já respondeu\n  if (lead.Ultima_Resposta_Cliente && lead.Ultima_Resposta_Cliente.trim() !== '') {\n    return false;\n  }\n  \n  // Verificar status\n  if (!CONFIG_REENGAJAMENTO.status_para_reengajamento.includes(lead.Status)) {\n    return false;\n  }\n  \n  // Verificar tentativas\n  const tentativas = parseInt(lead.Tentativas_Reengajamento || 0);\n  if (tentativas >= CONFIG_REENGAJAMENTO.max_tentativas) {\n    return false;\n  }\n  \n  // Verificar Proxima_Acao_At\n  if (lead.Proxima_Acao_At) {\n    const proximaAcao = new Date(lead.Proxima_Acao_At);\n    \n    if (agora < proximaAcao) {\n      return false; // Ainda não é hora\n    }\n  }\n  \n  // Verificar última tentativa\n  if (lead.Ultima_Tentativa_Reengajamento) {\n    const ultimaTentativa = new Date(lead.Ultima_Tentativa_Reengajamento);\n    const diferencaMinutos = (agora - ultimaTentativa) / (1000 * 60);\n    \n    if (diferencaMinutos < CONFIG_REENGAJAMENTO.intervalo_minutos) {\n      return false;\n    }\n  }\n  \n  return true;\n}\n\n// ========== PROCESSAR LEADS (APENAS NO HORÁRIO COMERCIAL) ==========\nfor (const item of dados) {\n  const lead = item.json;\n  \n  if (podeReengajar(lead)) {\n    leadsParaReengajamento.push({\n      ...lead,\n      motivo_reengajamento: 'Tempo_Esgotado_Horario_Comercial',\n      prioridade: lead.Score_Inicial || 0,\n      timestamp_filtro: agora.toISOString(),\n      horario_comercial: true,\n      hora_processamento: hora,\n      dia_processamento: dia,\n      nome_normalizado: (lead.Nome_Completo || lead['Nome Completo'] || 'Cliente'),\n      telefone_normalizado: String(lead['Telefone com DDD'] || lead.telefone_limpo || '').replace(/\\D/g, ''),\n      filtros_aplicados: {\n        horario_comercial: true,\n        sem_resposta_cliente: true,\n        status_valido: true,\n        tentativas_ok: true,\n        tempo_ok: true\n      }\n    });\n  }\n}\n\n// Ordenar por prioridade (score mais alto primeiro)\nleadsParaReengajamento.sort((a, b) => (b.prioridade || 0) - (a.prioridade || 0));\n\nconsole.log(`✅ Leads filtrados para reengajamento: ${leadsParaReengajamento.length}`);\nconsole.log(`📊 Total leads processados: ${dados.length}`);\nconsole.log(`⏰ Horário: ${hora}h (comercial: 8h-18h)`);\n\nreturn leadsParaReengajamento.map(lead => ({ json: lead }));"
+      },
+      "id": "22fd0337-dfe9-48b4-91ce-64f8e689592c",
+      "name": "🔍 Filtrar Leads Reengajamento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// VARIAÇÕES DE MENSAGENS - REENGAJAMENTO\n// ========================================\n// Cria variações específicas para reengajamento (1 saída por lead)\n\nconst items = $input.all();\n\nconst templatesReengajamento = [\n  { id: 'reeng_horario_1', template: 'Bom dia {nome}! 🌅 Vi que você se interessou no Bradesco Saúde. Posso ajudar?', tom: 'matinal' },\n  { id: 'reeng_horario_2', template: 'Boa tarde {nome}! ☀️ Ainda estou disponível para tirar suas dúvidas sobre os planos.', tom: 'vespertino' },\n  { id: 'reeng_1', template: 'Oi {nome}, tudo bem? 💙 Vi que você se interessou no Bradesco Saúde. Posso tirar alguma dúvida?', tom: 'amigavel' },\n  { id: 'reeng_2', template: 'Olá {nome}, ainda estou por aqui! 😊 Posso preparar sua proposta, é super rápido.', tom: 'profissional' },\n  { id: 'reeng_3', template: 'Oi {nome}, que tal conversarmos sobre o melhor plano para você? 🎯', tom: 'direto' },\n  { id: 'reeng_4', template: 'Olá {nome}, vi seu interesse no Bradesco Saúde! 💙 Posso ajudar com alguma informação?', tom: 'acolhedor' },\n  { id: 'reeng_5', template: 'Oi {nome}, ainda estou disponível para te ajudar! 😊 Qual sua dúvida sobre os planos?', tom: 'disponivel' },\n  { id: 'reeng_6', template: 'Olá {nome}, tudo bem? 💙 Que tal finalizarmos sua cotação do Bradesco Saúde?', tom: 'finalizacao' }\n];\n\nfunction escolherTemplatePorTentativa(tentativas) {\n  if (tentativas === 1) {\n    const arr = templatesReengajamento.filter(t => ['amigavel', 'acolhedor', 'disponivel'].includes(t.tom));\n    return arr[Math.floor(Math.random() * arr.length)];\n  }\n  if (tentativas === 2) {\n    const arr = templatesReengajamento.filter(t => ['profissional', 'direto'].includes(t.tom));\n    return arr[Math.floor(Math.random() * arr.length)];\n  }\n  if (tentativas === 3) {\n    const arr = templatesReengajamento.filter(t => ['finalizacao', 'direto'].includes(t.tom));\n    return arr[Math.floor(Math.random() * arr.length)];\n  }\n  return templatesReengajamento[Math.floor(Math.random() * templatesReengajamento.length)];\n}\n\nfunction personalizarMensagem(template, dados) {\n  const nome = dados.Nome_Completo || dados['Nome Completo'] || 'Cliente';\n  return template.template\n    .replace(/{nome}/g, nome)\n    .replace(/{plano}/g, 'Bradesco Saúde');\n}\n\nconst out = items.map((it) => {\n  const dados = it.json;\n  const tentativas = parseInt(dados.Tentativas_Reengajamento || 1);\n  const templateEscolhido = escolherTemplatePorTentativa(tentativas);\n  const mensagemFinal = personalizarMensagem(templateEscolhido, dados);\n  return { json: {\n    ...dados,\n    mensagem_reengajamento: mensagemFinal,\n    template_usado: templateEscolhido.id,\n    tom_mensagem: templateEscolhido.tom,\n    tentativa_reengajamento: tentativas,\n    timestamp_mensagem: new Date().toISOString()\n  }};\n});\n\nconsole.log(`Mensagens geradas: ${out.length}`);\nreturn out;"
+      },
+      "id": "288bfbc4-5aef-41ac-9f1b-b6cc17475879",
+      "name": "💬 Variações Mensagens Reengajamento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.evolutionApi.token}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ (()=>{ const n = String(($json.telefone_normalizado || $json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\\\D/g,'')); if(n.length===11) return '55'+n; if(n.length===13 && n.startsWith('55')) return n; return '55'+n; })() }}\",\n  \"text\": \"{{$json.mensagem_reengajamento}}\"\n}",
+        "options": {"continueOnFail": true, "timeout": 60000, "fullResponse": true}
+      },
+      "id": "f46fd472-6697-4cff-9444-71226cac5d19",
+      "name": "📱 Enviar WhatsApp Reengajamento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// CONTROLE DE FALHAS - REENGAJAMENTO\n// ========================================\n// Gerencia falhas específicas do reengajamento (1 saída por lead)\n\nconst items = $input.all();\n\nfunction classificarErro(erro) {\n  if (!erro) return 'sucesso';\n  const mensagem = String(erro).toLowerCase();\n  if (mensagem.includes('timeout') || mensagem.includes('time out')) return 'timeout';\n  if (mensagem.includes('network') || mensagem.includes('connection')) return 'rede';\n  if (mensagem.includes('auth') || mensagem.includes('unauthorized')) return 'autenticacao';\n  if (mensagem.includes('rate limit') || mensagem.includes('quota')) return 'limite';\n  if (mensagem.includes('invalid') || mensagem.includes('malformed')) return 'dados_invalidos';\n  return 'desconhecido';\n}\n\nfunction deveReprocessar(tipoErro, tentativas) {\n  const maxTentativas = 3;\n  if (tentativas >= maxTentativas) return false;\n  const errosReprocessaveis = ['timeout', 'rede', 'limite'];\n  return errosReprocessaveis.includes(tipoErro);\n}\n\nconst out = items.map((it) => {\n  const dados = it.json;\n  const erro = dados.error || null;\n  const tipoErro = classificarErro(erro);\n  const tentativas = (dados.tentativas_erro_reengajamento || 0) + 1;\n  const deveReprocessarErro = deveReprocessar(tipoErro, tentativas);\n  const logErro = {\n    timestamp: new Date().toISOString(),\n    lead_id: dados.Lead_ID || 'desconhecido',\n    tipo_erro: tipoErro,\n    mensagem_erro: String(erro || 'sucesso'),\n    tentativas: tentativas,\n    deve_reprocessar: deveReprocessarErro,\n    contexto: 'reengajamento',\n    dados_originais: { nome: dados.Nome_Completo, telefone: dados['Telefone com DDD'], email: dados.Email }\n  };\n  if (erro) {\n    console.error(`Erro reengajamento: ${tipoErro} (tentativa ${tentativas})`);\n    console.error('Log:', logErro);\n  }\n  return { json: {\n    ...dados,\n    erro_processado: true,\n    tipo_erro: tipoErro,\n    tentativas_erro_reengajamento: tentativas,\n    deve_reprocessar: deveReprocessarErro,\n    log_erro_reengajamento: logErro,\n    status_final: deveReprocessarErro ? 'reprocessar' : (erro ? 'falha' : 'sucesso')\n  }};\n});\n\nconsole.log(`Itens processados em controle de falhas: ${out.length}`);\nreturn out;"
+      },
+      "id": "9346ec1b-f922-419e-b367-578696033659",
+      "name": "🚨 Controle Falhas Reengajamento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1bGuTWcNCMjTed91deAZo8eGwy38tqWh8C7rU6PPG27M",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads_Brutos",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead_ID": "={{$json.Lead_ID}}",
+            "Tentativas_Reengajamento": "={{ $json.Tentativas_Reengajamento }}",
+            "Ultima_Tentativa_Reengajamento": "={{ $now.toISO() }}",
+            "Status_Reengajamento": "={{ ($json.Tentativas_Reengajamento) >= 3 ? 'em_supervisao' : 'em_andamento' }}",
+            "Template_Usado": "={{ $json.template_usado }}",
+            "Tom_Mensagem": "={{ $json.tom_mensagem }}",
+            "Status": "={{ ($json.Tentativas_Reengajamento) >= 3 ? 'Supervisor_Acao' : 'Aguardando_5min' }}",
+            "Proxima_Acao_At": "={{ $json.Proxima_Acao_At }}",
+            "Delay_Minutos": "={{ $json.delay_minutos }}"
+          }
+        },
+        "options": {
+          "continueOnFail": true
+        }
+      },
+      "id": "ef65d60e-0f6f-4fb5-b724-f74d4100ef88",
+      "name": "📊 Atualizar Status Reengajamento",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1780,
+        300
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZRCcorwTkMjhn6EC",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1bGuTWcNCMjTed91deAZo8eGwy38tqWh8C7rU6PPG27M",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Falhas_Reengajamento",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{$json.log_erro_reengajamento.timestamp}}",
+            "Lead_ID": "={{$json.log_erro_reengajamento.lead_id}}",
+            "Tipo_Erro": "={{$json.log_erro_reengajamento.tipo_erro}}",
+            "Motivo_Falha": "={{$json.log_erro_reengajamento.tipo_erro === 'telefone_invalido' ? 'Telefone com menos de 11 dígitos' : $json.log_erro_reengajamento.tipo_erro}}",
+            "Mensagem_Erro": "={{$json.log_erro_reengajamento.mensagem_erro}}",
+            "Tentativas": "={{$json.log_erro_reengajamento.tentativas}}",
+            "Deve_Reprocessar": "={{$json.log_erro_reengajamento.deve_reprocessar}}",
+            "Contexto": "={{$json.log_erro_reengajamento.contexto}}",
+            "Nome_Cliente": "={{$json.log_erro_reengajamento.dados_originais.nome}}",
+            "Nome_Normalizado": "={{$json.nome_normalizado}}",
+            "Telefone_Cliente": "={{$json['Telefone com DDD'] || $json.telefone_limpo}}",
+            "Telefone_Normalizado": "={{$json.telefone_normalizado}}",
+            "Email_Cliente": "={{$json.log_erro_reengajamento.dados_originais.email}}",
+            "Status_Envio": "erro",
+            "Mensagem_Enviada": "={{$json.mensagem_reengajamento}}"
+          }
+        },
+        "options": {}
+      },
+      "id": "d9620364-c0cc-4357-b6be-ca363b52dedf",
+      "name": "📊 Log Falhas Reengajamento",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2000,
+        300
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZRCcorwTkMjhn6EC",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "verificar-tentativas",
+              "leftValue": "={{($json.Tentativas_Reengajamento || 0) + 1}}",
+              "rightValue": "3",
+              "operator": {
+                "type": "number",
+                "operation": "smallerEqual"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "verificacao-tentativas-001",
+      "name": "🔢 Verificar Tentativas <= 3",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// DELAY ESCALONADO - REENGAJAMENTO\n// ========================================\n// 1ª tentativa: 5min | 2ª: 30min | 3ª+: 120min\n// Anti-pico por item (ms): 3000 + i*2000 + rand(0–1500)\n\nconst items = $input.all();\n\nconst out = items.map((it, i) => {\n  const dados = it.json;\n  const tent = Number(dados.Tentativas_Reengajamento || 0) + 1;\n  const delayMin = tent === 1 ? 5 : (tent === 2 ? 30 : 120);\n  const proximaAcao = $now.plus(delayMin, 'minutes').toISO();\n  const delayMs = 3000 + i * 2000 + Math.floor(Math.random() * 1501);\n  return { json: {\n    ...dados,\n    Tentativas_Reengajamento: tent,\n    delay_minutos: delayMin,\n    delay_ms: delayMs,\n    Proxima_Acao_At: proximaAcao,\n    timestamp_delay: $now.toISO()\n  }};\n});\n\nconsole.log(`Delays calculados para ${out.length} itens.`);\nreturn out;"
+      },
+      "id": "delay-escalonado-001",
+      "name": "⏰ Calcular Delay Escalonado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/chat/typing/Bradesco",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.evolutionApi.token}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ (()=>{ const n = String(($json.telefone_normalizado || $json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\\\D/g,'')); if(n.length===11) return '55'+n; if(n.length===13 && n.startsWith('55')) return n; return '55'+n; })() }}\",\n  \"state\": \"on\"\n}",
+        "options": {"continueOnFail": true, "timeout": 30000}
+      },
+      "id": "wa-typing-on-001",
+      "name": "WA Digitando ON",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1600,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/chat/typing/Bradesco",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.evolutionApi.token}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ (()=>{ const n = String(($json.telefone_normalizado || $json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\\\D/g,'')); if(n.length===11) return '55'+n; if(n.length===13 && n.startsWith('55')) return n; return '55'+n; })() }}\",\n  \"state\": \"off\"\n}",
+        "options": {"continueOnFail": true, "timeout": 30000}
+      },
+      "id": "wa-typing-off-001",
+      "name": "WA Digitando OFF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2000,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.evolutionApi.token}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ (()=>{ const n = String(($env.SUPERVISOR_WHATS || '11996163900').replace(/\\\\D/g,'')); if(n.length===11) return '55'+n; if(n.length===13 && n.startsWith('55')) return n; return '55'+n; })() }}\",\n  \"text\": \"🧭 Lead sem resposta (Robô 5min)\\n👤 {{ $json.nome_normalizado || $json.Nome_Completo || $json['Nome Completo'] || 'Cliente' }}\\n📞 {{ (()=>{ const n = String(($json.telefone_normalizado || $json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\\\D/g,'')); if(n.length===11) return '55'+n; if(n.length===13 && n.startsWith('55')) return n; return '55'+n; })() }}\\n⭐ Qualificação: {{ $json.classificacao || 'N/A' }} (Score: {{ $json.score || 0 }})\\n🔢 Tentativas: {{ $json.Tentativas_Reengajamento || 1 }}\\n⏭ Próxima ação: {{ $json.Proxima_Acao_At || 'N/A' }}\\n🎯 Atribuído a Rodrigo\\n🆔 {{ $json.Lead_ID || 'sem_id' }}\\n\"\n}",
+        "options": {"continueOnFail": true, "timeout": 30000}
+      },
+      "id": "copia-rodrigo-001",
+      "name": "👨‍💼 Cópia para Rodrigo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1bGuTWcNCMjTed91deAZo8eGwy38tqWh8C7rU6PPG27M",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Reengajamento",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead_ID": "={{$json.Lead_ID || 'sem_id'}}",
+            "Nome_Cliente": "={{$json.Nome_Completo || 'Cliente'}}",
+            "Nome_Normalizado": "={{$json.nome_normalizado}}",
+            "Telefone": "={{$json['Telefone com DDD'] || $json.telefone_limpo}}",
+            "Telefone_Normalizado": "={{$json.telefone_normalizado}}",
+            "Tentativas": "={{$json.Tentativas_Reengajamento || 1}}",
+            "Template_Usado": "={{$json.template_usado || 'n/a'}}",
+            "Mensagem_Enviada": "={{$json.mensagem_reengajamento}}",
+            "Delay_Minutos": "={{$json.delay_minutos || 5}}",
+            "Status_Envio": "ok",
+            "Timestamp": "={{$now.toISO()}}",
+            "Proxima_Acao": "={{$json.Proxima_Acao_At}}"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-reengajamento-001",
+      "name": "📊 Log Reengajamento",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2200,
+        200
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZRCcorwTkMjhn6EC",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "verificar-3a-tentativa",
+              "leftValue": "={{$json.Tentativas_Reengajamento || 0}}",
+              "rightValue": "3",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-3a-tentativa-001",
+      "name": "🔍 IF É 3ª Tentativa",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2600,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "amount": "={{ Math.max(1, Math.floor(($json.delay_ms || 0)/1000)) }}",
+        "unit": "seconds",
+        "options": {
+          "continueOnFail": true,
+          "alwaysOutputData": true
+        }
+      },
+      "id": "wait-anti-pico-001",
+      "name": "⏳ Anti-pico Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        1500,
+        230
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "if-telefone-valido-001",
+              "leftValue": "={{ String($json.telefone_normalizado || $json['Telefone com DDD'] || '').replace(/\\\\D/g,'').length }}",
+              "rightValue": "11",
+              "operator": {
+                "type": "number",
+                "operation": "largerEqual"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-telefone-valido-001",
+      "name": "✅ IF Telefone Válido",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        160
+      ]
+    }
+  ],
+  "connections": {
+    "⏰ Agendamento Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "📊 Buscar Leads Pendentes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Buscar Leads Pendentes": {
+      "main": [
+        [
+          {
+            "node": "🔍 Filtrar Leads Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Filtrar Leads Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "🔢 Verificar Tentativas <= 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "💬 Variações Mensagens Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "✅ IF Telefone Válido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📱 Enviar WhatsApp Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "✅ IF Envio 2xx",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "error": [
+        [
+          {
+            "node": "🚨 Controle Falhas Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✅ IF Envio 2xx": {
+      "main": [
+        [
+          {
+            "node": "📊 Atualizar Status Reengajamento",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WA Digitando OFF",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "👨‍💼 Cópia para Rodrigo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "📊 Atualizar Status Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "📊 Log Reengajamento",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "📊 Log Reengajamento (Rodrigo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔢 Verificar Tentativas <= 3": {
+      "main": [
+        [
+          {
+            "node": "⏰ Calcular Delay Escalonado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⏰ Calcular Delay Escalonado": {
+      "main": [
+        [
+          {
+            "node": "💬 Variações Mensagens Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Digitando ON": {
+      "main": [
+        [
+          {
+            "node": "📱 Enviar WhatsApp Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Digitando OFF": {
+      "main": [
+        []
+      ]
+    },
+    "📊 Log Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "🔍 IF É 3ª Tentativa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🚨 Controle Falhas Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "📊 Log Falhas Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Log Falhas Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "👨‍💼 Cópia para Rodrigo",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "📊 Log Falhas Reengajamento (Rodrigo)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WA Digitando OFF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✅ IF Telefone Válido": {
+      "main": [
+        [
+          {
+            "node": "⏳ Anti-pico Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "🛑 Telefone Inválido (Log)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🛑 Telefone Inválido (Log)": {
+      "main": [
+        [
+          {
+            "node": "📊 Log Falhas Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⏳ Anti-pico Wait": {
+      "main": [
+        [
+          {
+            "node": "WA Digitando ON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 IF É 3ª Tentativa": {
+      "main": [
+        [
+          {
+            "node": "🔖 Aviso Vendedor 3ª Tentativa",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "staticData": {},
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-09-22T03:54:06.425507",
+  "versionId": "3fa9511d-1875-4707-af06-5e84a823ae04"
 }
