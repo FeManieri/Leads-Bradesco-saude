@@ -141,7 +141,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -181,7 +181,20 @@
     },
     {
       "parameters": {
-        "jsCode": "try {\n  // 1) Entrada tolerante (string JSON ou objeto)\n  let dados = {};\n  try {\n    const raw = $input.all()[0].json?.body ?? $input.all()[0].json ?? {};\n    dados = (typeof raw === 'string') ? JSON.parse(raw) : (raw || {});\n  } catch (e) {\n    console.error('Entrada não era JSON válido; seguindo com objeto vazio:', e);\n    dados = {};\n  }\n\n  // 2) Helpers\n  const limparTelefone = (telefone) => {\n    if (!telefone) return '';\n    const limpo = String(telefone).replace(/\\D/g, '').slice(-11);\n    return (limpo.length >= 10 && limpo.length <= 11) ? limpo : '';\n  };\n\n  // aceita \"dd/MM/yyyy\" ou ISO \"yyyy-MM-dd\"\n  const calcularIdade = (dataNascimento) => {\n    if (!dataNascimento) return '';\n    let d;\n    if (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(String(dataNascimento))) {\n      const [dd, mm, yyyy] = String(dataNascimento).split('/').map(n => parseInt(n, 10));\n      d = new Date(yyyy, mm - 1, dd);\n    } else {\n      d = new Date(dataNascimento);\n    }\n    if (isNaN(d.getTime())) return '';\n    const hoje = new Date();\n    let idade = hoje.getFullYear() - d.getFullYear();\n    const m = hoje.getMonth() - d.getMonth();\n    if (m < 0 || (m === 0 && hoje.getDate() < d.getDate())) idade--;\n    return idade > 0 ? String(idade) : '';\n  };\n\n  const validarEmail = (email) => {\n    if (!email) return '';\n    const re = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    return re.test(String(email).trim()) ? String(email).trim() : '';\n  };\n\n  const toBucket = (raw) => {\n    if (raw >= 70) return { classificacao: 'Alta', score: 80 };\n    if (raw >= 50) return { classificacao: 'Média', score: 60 };\n    if (raw >= 30) return { classificacao: 'Baixa', score: 40 };\n    return { classificacao: 'Muito Baixa', score: 20 };\n  };\n\n  const calcularScore = (d) => {\n    let score = 0;\n\n    // Base (dados de qualidade)\n    if (d.nome && String(d.nome).trim().length > 2) score += 20;\n    if (d.email && validarEmail(d.email)) score += 20;\n    if ((d.telefone && limparTelefone(d.telefone)) || (d.telefone_limpo && limparTelefone(d.telefone_limpo))) score += 20;\n    if (d.estado && String(d.estado).trim().length > 1) score += 10;\n    if (d.cidade && String(d.cidade).trim().length > 1) score += 10;\n    const totalVidas = parseInt(d.total_vidas ?? d.vidas ?? 0, 10) || 0;\n    if (totalVidas > 0) score += 10;\n    if (d.mensagem && String(d.mensagem).trim().length > 10) score += 10;\n\n    // Penalidades e bônus de negócio\n    const idade = parseInt(d.idade_titular ?? d.idade ?? 0, 10) || 0;\n    if (idade >= 60 && idade <= 68) score -= 15;\n    else if (idade >= 69) score -= 35;\n\n    const preexist = String(d.tem_preexistencia || '').toLowerCase();\n    if (preexist.startsWith('sim')) score -= 20;\n\n    const grave = String(d.doenca_grave || '').toLowerCase();\n    if (grave.startsWith('sim')) score -= 35;\n\n    if (totalVidas > 0 && totalVidas < 3) score -= 15;\n\n    const tipo = String(d.tipo_contratacao || '').toLowerCase();\n    if ((tipo.includes('empres') || tipo.includes('mei')) && totalVidas > 0 && totalVidas < 3) score -= 10;\n\n    const cnpjMeses = parseInt(d.cnpj_meses_ativo ?? 0, 10) || 0;\n    if ((tipo.includes('empres') || tipo.includes('mei')) && cnpjMeses > 0 && cnpjMeses < 6) score -= 25;\n\n    const plano = String(d.plano_atual || '').trim();\n    const tempoPlanoMeses = parseInt(d.tempo_plano_atual_meses ?? 0, 10) || 0;\n    if (!plano || plano.toLowerCase() === 'não possui' || plano.toLowerCase() === 'nao possui') {\n      score += 10;\n    } else if (tempoPlanoMeses >= 24) {\n      score += 15;\n    }\n\n    const score_bruto = Math.max(0, Math.min(100, score));\n    const bucket = toBucket(score_bruto);\n    return { score_bruto, score: bucket.score, classificacao: bucket.classificacao };\n  };\n\n  // 3) Normalizações\n  const telefoneLimpo = limparTelefone(dados.telefone || dados.from);\n  const idadeCalculada = calcularIdade(dados.nascimento);\n  const emailValidado = validarEmail(dados.email);\n\n  const bucket = calcularScore(dados);\n\n  // 4) Saída padronizada (mantém TODOS os campos que o seu fluxo usa)\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: String(dados.nome || '').trim(),\n    email: emailValidado,\n    telefone: String(dados.telefone || ''),\n    telefone_limpo: telefoneLimpo,\n    nascimento: String(dados.nascimento || ''),\n    estado: String(dados.estado || '').trim(),\n    cidade: String(dados.cidade || '').trim(),\n    vidas: parseInt(dados.vidas, 10) || 1,\n    total_vidas: parseInt(dados.total_vidas ?? dados.vidas ?? 0, 10) || (parseInt(dados.vidas, 10) || 1),\n    mensagem: String(dados.mensagem || '').trim(),\n    timestamp: new Date().toISOString(),\n\n    // idade em dois campos porque o resto do fluxo usa ambos\n    idade: idadeCalculada,\n    idade_titular: idadeCalculada,\n\n    // novos campos suportados\n    cnpj_meses_ativo: dados.cnpj_meses_ativo ?? '',\n    tempo_plano_atual_meses: dados.tempo_plano_atual_meses ?? '',\n    tipo_contratacao: dados.tipo_contratacao ?? (dados.tipo || ''),\n    tem_preexistencia: dados.tem_preexistencia ?? '',\n    doenca_grave: dados.doenca_grave ?? '',\n    plano_atual: dados.plano_atual ?? '',\n\n    status: 'Novo - Aguardando IA',\n    classificacao: bucket.classificacao,\n    classificacao_inicial: bucket.classificacao,\n\n    score_bruto: bucket.score_bruto,\n    score: bucket.score,\n    score_inicial: bucket.score,\n\n    remarketing_data: '',\n    telefone_invalido: !telefoneLimpo,\n    dados_validos: Boolean(telefoneLimpo && String(dados.nome || '').trim().length > 2)\n  }];\n\n} catch (error) {\n  console.error('Erro ao processar dados iniciais:', error);\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: 'Erro no processamento',\n    email: '',\n    telefone: '',\n    telefone_limpo: '',\n    nascimento: '',\n    estado: '',\n    cidade: '',\n    vidas: 1,\n    mensagem: 'Erro ao processar dados iniciais',\n    timestamp: new Date().toISOString(),\n    idade: '',\n    idade_titular: '',\n    status: 'Erro - Dados Inválidos',\n    classificacao: 'Muito Baixa',\n    classificacao_inicial: 'Muito Baixa',\n    score: 0,\n    score_inicial: 0,\n    score_bruto: 0,\n    remarketing_data: '',\n    telefone_invalido: true,\n    dados_validos: false,\n    erro_processamento: error.message\n  }];\n}"
+        "jsCode": "try {\n  // 1) Entrada tolerante (string JSON ou objeto)\n  let dados = {};\n  try {\n    const raw = $input.all()[0].json?.body ?? $input.all()[0].json ?? {};\n    dados = (typeof raw === 'string') ? JSON.parse(raw) : (raw || {});\n  } catch (e) {\n    console.error('Entrada não era JSON válido; seguindo com objeto vazio:', e);\n    dados = {};\n  }\n\n  // 2) Helpers\n  const limparTelefone = (telefone) => {\n    if (!telefone) return '';\n    const limpo = String(telefone).replace(/\\D/g, '').slice(-11);\n    return (limpo.length >= 10 && limpo.length <= 11) ? limpo : '';\n  };\n\n  // aceita \"dd/MM/yyyy\" ou ISO \"yyyy-MM-dd\"\n  const calcularIdade = (dataNascimento) => {\n    if (!dataNascimento) return '';\n    let d;\n    if (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(String(dataNascimento))) {\n      const [dd, mm, yyyy] = String(dataNascimento).split('/').map(n => parseInt(n, 10));\n      d = new Date(yyyy, mm - 1, dd);\n    } else {\n      d = new Date(dataNascimento);\n    }\n    if (isNaN(d.getTime())) return '';\n    const hoje = new Date();\n    let idade = hoje.getFullYear() - d.getFullYear();\n    const m = hoje.getMonth() - d.getMonth();\n    if (m < 0 || (m === 0 && hoje.getDate() < d.getDate())) idade--;\n    return idade > 0 ? String(idade) : '';\n  };\n\n  const validarEmail = (email) => {\n    if (!email) return '';\n    const re = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    return re.test(String(email).trim()) ? String(email).trim() : '';\n  };\n\n  const toBucket = (raw) => {\n    if (raw >= 70) return { classificacao: 'Alta', score: 80 };\n    if (raw >= 50) return { classificacao: 'Média', score: 60 };\n    if (raw >= 30) return { classificacao: 'Baixa', score: 40 };\n    return { classificacao: 'Muito Baixa', score: 20 };\n  };\n\n  const calcularScore = (d) => {\n    let score = 0;\n\n    // Base (dados de qualidade)\n    if (d.nome && String(d.nome).trim().length > 2) score += 20;\n    if (d.email && validarEmail(d.email)) score += 20;\n    if ((d.telefone && limparTelefone(d.telefone)) || (d.telefone_limpo && limparTelefone(d.telefone_limpo))) score += 20;\n    if (d.estado && String(d.estado).trim().length > 1) score += 10;\n    if (d.cidade && String(d.cidade).trim().length > 1) score += 10;\n    const totalVidas = parseInt(d.total_vidas ?? d.vidas ?? 0, 10) || 0;\n    if (totalVidas > 0) score += 10;\n    if (d.mensagem && String(d.mensagem).trim().length > 10) score += 10;\n\n    // Penalidades e bônus de negócio\n    const idade = parseInt(d.idade_titular ?? d.idade ?? 0, 10) || 0;\n    if (idade >= 60 && idade <= 68) score -= 15;\n    else if (idade >= 69) score -= 35;\n\n    const preexist = String(d.tem_preexistencia || '').toLowerCase();\n    if (preexist.startsWith('sim')) score -= 20;\n\n    const grave = String(d.doenca_grave || '').toLowerCase();\n    if (grave.startsWith('sim')) score -= 35;\n\n    if (totalVidas > 0 && totalVidas < 3) score -= 15;\n\n    const tipo = String(d.tipo_contratacao || '').toLowerCase();\n    if ((tipo.includes('empres') || tipo.includes('mei')) && totalVidas > 0 && totalVidas < 3) score -= 10;\n\n    const cnpjMeses = parseInt(d.cnpj_meses_ativo ?? 0, 10) || 0;\n    if ((tipo.includes('empres') || tipo.includes('mei')) && cnpjMeses > 0 && cnpjMeses < 6) score -= 25;\n\n    const plano = String(d.plano_atual || '').trim();\n    const tempoPlanoMeses = parseInt(d.tempo_plano_atual_meses ?? 0, 10) || 0;\n    if (!plano || plano.toLowerCase() === 'não possui' || plano.toLowerCase() === 'nao possui') {\n      score += 10;\n    } else if (tempoPlanoMeses >= 24) {\n      score += 15;\n    }\n\n    const score_bruto = Math.max(0, Math.min(100, score));\n    const bucket = toBucket(score_bruto);\n    return { score_bruto, score: bucket.score, classificacao: bucket.classificacao };\n  };\n\n  // 3) Normalizações\n  const telefoneLimpo = limparTelefone(dados.telefone || dados.from);\n  const idadeCalculada = calcularIdade(dados.nascimento);\n  const emailValidado = validarEmail(dados.email);\n\n  const bucket = calcularScore(dados);\n\n  // 4) Saída padronizada (mantém TODOS os campos que o seu fluxo usa)\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: String(dados.nome || '').trim(),\n    email: emailValidado,\n    telefone: String(dados.telefone || ''),\n    telefone_limpo: telefoneLimpo,\n    nascimento: String(dados.nascimento || ''),\n    estado: String(dados.estado || '').trim(),\n    cidade: String(dados.cidade || '').trim(),\n    vidas: parseInt(dados.vidas, 10) || 1,\n    total_vidas: parseInt(dados.total_vidas ?? dados.vidas ?? 0, 10) || (parseInt(dados.vidas, 10) || 1),\n    mensagem: String(dados.mensagem || '').trim(),\n    timestamp: new Date().toISOString(),\n\n    // idade em dois campos porque o resto do fluxo usa ambos\n    idade: idadeCalculada,\n    idade_titular: idadeCalculada,\n\n    // novos campos suportados\n    cnpj_meses_ativo: dados.cnpj_meses_ativo ?? '',\n    tempo_plano_atual_meses: dados.tempo_plano_atual_meses ?? '',\n    tipo_contratacao: dados.tipo_contratacao ?? (dados.tipo || ''),\n    tem_preexistencia: dados.tem_preexistencia ?? '',\n    doenca_grave: dados.doenca_grave ?? '',\n    plano_atual: dados.plano_atual ?? '',\n\n    status: 'Novo - Aguardando IA',\n    classificacao: bucket.classificacao,\n    classificacao_inicial: bucket.classificacao,\n\n    score_bruto: bucket.score_bruto,\n    score: bucket.score,\n    score_inicial: bucket.score,\n\n    remarketing_data: '',\n    telefone_valido: Boolean(telefoneLimpo),\n    telefone_invalido: !telefoneLimpo,\n    dados_validos: Boolean(telefoneLimpo && String(dados.nome || '').trim().length > 2)\n  }];\n\n} catch (error) {\n  console.error('Erro ao processar dados iniciais:', error);\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: 'Erro no processamento',\n    email: '',\n    telefone: '',\n    telefone_limpo: '',\n    nascimento: '',\n    estado: '',\n    cidade: '',\n    vidas: 1,\n    mensagem: 'Erro ao processar dados iniciais',\n    timestamp: new Date().toISOString(),\n    idade: '',\n    idade_titular: '',\n    status: 'Erro - Dados Inválidos',\n    classificacao: 'Muito Baixa',\n    classificacao_inicial: 'Muito Baixa',\n    score: 0,\n    score_inicial: 0,\n    score_bruto: 0,\n    remarketing_data: '',\n    telefone_valido: false,\n    telefone_invalido: true,\n    dados_validos: false,\n    erro_processamento: error.message\n  }];\n}"
+      },
+      "id": "d3e3475e-dea1-4d93-9601-312d01a3ee45",
+      "name": "Processar Dados Iniciais",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -7152,
+        -1280
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  // 1) Entrada tolerante (string JSON ou objeto)\n  let dados = {};\n  try {\n    const raw = $input.all()[0].json?.body ?? $input.all()[0].json ?? {};\n    dados = (typeof raw === 'string') ? JSON.parse(raw) : (raw || {});\n  } catch (e) {\n    console.error('Entrada não era JSON válido; seguindo com objeto vazio:', e);\n    dados = {};\n  }\n\n  // 2) Helpers\n  const limparTelefone = (telefone) => {\n    if (!telefone) return '';\n    const limpo = String(telefone).replace(/\\D/g, '').slice(-11);\n    return (limpo.length >= 10 && limpo.length <= 11) ? limpo : '';\n  };\n\n  // aceita \"dd/MM/yyyy\" ou ISO \"yyyy-MM-dd\"\n  const calcularIdade = (dataNascimento) => {\n    if (!dataNascimento) return '';\n    let d;\n    if (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(String(dataNascimento))) {\n      const [dd, mm, yyyy] = String(dataNascimento).split('/').map(n => parseInt(n, 10));\n      d = new Date(yyyy, mm - 1, dd);\n    } else {\n      d = new Date(dataNascimento);\n    }\n    if (isNaN(d.getTime())) return '';\n    const hoje = new Date();\n    let idade = hoje.getFullYear() - d.getFullYear();\n    const m = hoje.getMonth() - d.getMonth();\n    if (m < 0 || (m === 0 && hoje.getDate() < d.getDate())) idade--;\n    return idade > 0 ? String(idade) : '';\n  };\n\n  const validarEmail = (email) => {\n    if (!email) return '';\n    const re = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    return re.test(String(email).trim()) ? String(email).trim() : '';\n  };\n\n  const toBucket = (raw) => {\n    if (raw >= 70) return { classificacao: 'Alta', score: 80 };\n    if (raw >= 50) return { classificacao: 'Média', score: 60 };\n    if (raw >= 30) return { classificacao: 'Baixa', score: 40 };\n    return { classificacao: 'Muito Baixa', score: 20 };\n  };\n\n  const calcularScore = (d) => {\n    let score = 0;\n\n    // Base (dados de qualidade)\n    if (d.nome && String(d.nome).trim().length > 2) score += 20;\n    if (d.email && validarEmail(d.email)) score += 20;\n    if ((d.telefone && limparTelefone(d.telefone)) || (d.telefone_limpo && limparTelefone(d.telefone_limpo))) score += 20;\n    if (d.estado && String(d.estado).trim().length > 1) score += 10;\n    if (d.cidade && String(d.cidade).trim().length > 1) score += 10;\n    const totalVidas = parseInt(d.total_vidas ?? d.vidas ?? 0, 10) || 0;\n    if (totalVidas > 0) score += 10;\n    if (d.mensagem && String(d.mensagem).trim().length > 10) score += 10;\n\n    // Penalidades e bônus de negócio\n    const idade = parseInt(d.idade_titular ?? d.idade ?? 0, 10) || 0;\n    if (idade >= 60 && idade <= 68) score -= 15;\n    else if (idade >= 69) score -= 35;\n\n    const preexist = String(d.tem_preexistencia || '').toLowerCase();\n    if (preexist.startsWith('sim')) score -= 20;\n\n    const grave = String(d.doenca_grave || '').toLowerCase();\n    if (grave.startsWith('sim')) score -= 35;\n\n    if (totalVidas > 0 && totalVidas < 3) score -= 15;\n\n    const tipo = String(d.tipo_contratacao || '').toLowerCase();\n    if ((tipo.includes('empres') || tipo.includes('mei')) && totalVidas > 0 && totalVidas < 3) score -= 10;\n\n    const cnpjMeses = parseInt(d.cnpj_meses_ativo ?? 0, 10) || 0;\n    if ((tipo.includes('empres') || tipo.includes('mei')) && cnpjMeses > 0 && cnpjMeses < 6) score -= 25;\n\n    const plano = String(d.plano_atual || '').trim();\n    const tempoPlanoMeses = parseInt(d.tempo_plano_atual_meses ?? 0, 10) || 0;\n    if (!plano || plano.toLowerCase() === 'não possui' || plano.toLowerCase() === 'nao possui') {\n      score += 10;\n    } else if (tempoPlanoMeses >= 24) {\n      score += 15;\n    }\n\n    const score_bruto = Math.max(0, Math.min(100, score));\n    const bucket = toBucket(score_bruto);\n    return { score_bruto, score: bucket.score, classificacao: bucket.classificacao };\n  };\n\n  // 3) Normalizações\n  const telefoneLimpo = limparTelefone(dados.telefone || dados.from);\n  const idadeCalculada = calcularIdade(dados.nascimento);\n  const emailValidado = validarEmail(dados.email);\n\n  const bucket = calcularScore(dados);\n\n  // 4) Saída padronizada (mantém TODOS os campos que o seu fluxo usa)\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: String(dados.nome || '').trim(),\n    email: emailValidado,\n    telefone: String(dados.telefone || ''),\n    telefone_limpo: telefoneLimpo,\n    nascimento: String(dados.nascimento || ''),\n    estado: String(dados.estado || '').trim(),\n    cidade: String(dados.cidade || '').trim(),\n    vidas: parseInt(dados.vidas, 10) || 1,\n    total_vidas: parseInt(dados.total_vidas ?? dados.vidas ?? 0, 10) || (parseInt(dados.vidas, 10) || 1),\n    mensagem: String(dados.mensagem || '').trim(),\n    timestamp: new Date().toISOString(),\n\n    // idade em dois campos porque o resto do fluxo usa ambos\n    idade: idadeCalculada,\n    idade_titular: idadeCalculada,\n\n    // novos campos suportados\n    cnpj_meses_ativo: dados.cnpj_meses_ativo ?? '',\n    tempo_plano_atual_meses: dados.tempo_plano_atual_meses ?? '',\n    tipo_contratacao: dados.tipo_contratacao ?? (dados.tipo || ''),\n    tem_preexistencia: dados.tem_preexistencia ?? '',\n    doenca_grave: dados.doenca_grave ?? '',\n    plano_atual: dados.plano_atual ?? '',\n\n    status: 'Novo - Aguardando IA',\n    classificacao: bucket.classificacao,\n    classificacao_inicial: bucket.classificacao,\n\n    score_bruto: bucket.score_bruto,\n    score: bucket.score,\n    score_inicial: bucket.score,\n\n    remarketing_data: '',\n    telefone_valido: Boolean(telefoneLimpo),\n    telefone_invalido: !telefoneLimpo,\n    dados_validos: Boolean(telefoneLimpo && String(dados.nome || '').trim().length > 2)\n  }];\n\n} catch (error) {\n  console.error('Erro ao processar dados iniciais:', error);\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: 'Erro no processamento',\n    email: '',\n    telefone: '',\n    telefone_limpo: '',\n    nascimento: '',\n    estado: '',\n    cidade: '',\n    vidas: 1,\n    mensagem: 'Erro ao processar dados iniciais',\n    timestamp: new Date().toISOString(),\n    idade: '',\n    idade_titular: '',\n    status: 'Erro - Dados Inválidos',\n    classificacao: 'Muito Baixa',\n    classificacao_inicial: 'Muito Baixa',\n    score: 0,\n    score_inicial: 0,\n    score_bruto: 0,\n    remarketing_data: '',\n    telefone_valido: false,\n    telefone_invalido: true,\n    dados_validos: false,\n    erro_processamento: error.message\n  }];\n}"
       },
       "id": "d3e3475e-dea1-4d93-9601-312d01a3ee45",
       "name": "Processar Dados Iniciais",
@@ -218,7 +231,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -259,7 +272,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/chat/typing/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/chat/typing/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -299,7 +312,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const dados = $input.all()[0].json;\n\nconst promptMariana = `Você é a Mariana, consultora especialista Bradesco Saúde com 10 anos de experiência.\n\nCOMPORTAMENTO:\n\nProfissional, cordial, humanizada, calorosa e empática.\n\nSempre pareça humana: reconheça o que o cliente diz, agradeça, adapte o tom.\n\nUse emojis com moderação (😊 ✅ 📌 💙).\n\nAdapte a saudação conforme horário (bom dia/tarde/noite).\n\nTrate médicos como \"Dr(a).\".\n\nAssine sempre: — Mariana · Bradesco Saúde.\n\nAo perguntar sobre doenças, seja sempre discreta e empática. Use uma frase como: \"Para que a cotação seja precisa, preciso confirmar se há alguma condição de saúde preexistente que precise de atenção especial no plano.\"\n\nSe o cliente pedir para falar com humano, finalize com acolhimento e sinalize o encaminhamento imediato.\n\nSe o cliente demonstrar urgência, seja objetiva e direta; se demonstrar insegurança, reforce acolhimento e segurança.\n\nResponda no mesmo idioma do cliente (padrão: PT-BR).\n\nObjetivo principal: coletar todas as informações necessárias de forma completa, clara e humanizada, para ao final encaminhar o cliente a um representante comercial sênior da Bradesco, que terá autonomia para personalizar a proposta.\n\nAo abordar pré-existências e doenças graves, ser sempre extremamente delicada, acolhedora e humanizada, reforçando que a pergunta é apenas para garantir precisão e cuidado no plano.\n\nPLANOS BRADESCO (referência de posicionamento, não prometa valores):\n\nEfetivo: Básico, rede essencial\n\nFlex: Intermediário, rede ampliada\n\nIdeal: Digital, rede completa\n\nNacional: Cobertura Brasil todo\n\nNacional Plus: Premium com Einstein/Sírio\n\nPremium: Top com Copa Star/Samaritano\n\nREDE HOSPITALAR SÃO PAULO (resumo):\n\nEfetivo: Beneficência Portuguesa\n\nFlex: + Santa Paula, São Camilo\n\nIdeal: + 9 de Julho, Santa Joana\n\nNacional: + Oswaldo Cruz, Santa Catarina\n\nNacional Plus: + Einstein, Sírio-Libanês\n\nPremium: + Copa Star, Samaritano, Vila Nova Star\n\nHOSPITAIS RIO DE JANEIRO (resumo):\n\nCopa D'Or, Quinta D'Or (Nacional Plus/Premium)\n\nSamaritano, Barra D'Or (Nacional/Ideal)\n\nCasa de Saúde São José (Flex)\n\nCARÊNCIAS (informativas; não garanta exceções):\n\nUrgência/Emergência: 24 horas\n\nConsultas: 30 dias\n\nExames simples: 30 dias\n\nExames complexos: 180 dias\n\nInternações: 180 dias\n\nParto: 300 dias\n\nDoenças preexistentes: 24 meses\n\nREGRAS PRINCIPAIS:\n\nMínimo 3 vidas\n\nCNPJ/MEI ativo 6+ meses\n\nIdade limite 59 anos (acima disso, análise especial)\n\nRN até 30 dias sem carência (conforme regras)\n\nDADOS JÁ COLETADOS (NUNCA PERGUNTE NOVAMENTE):\n\nNome: ${dados.nome || 'Não informado'}\n\nIdade titular: ${dados.idade_titular || dados.idade || 'Não informado'}\n\nTelefone: ${dados.telefone || 'Não informado'}\n\nEmail: ${dados.email || 'Não informado'}\n\nLocal: ${dados.cidade || ''}/${dados.estado || ''}\n\nTotal de vidas (grupo): ${dados.vidas || 1}\n\nIdades dependentes: ${dados.idades_dependentes || 'Não informado'}\n\nMensagem inicial: ${dados.mensagem || 'Não informado'}\n\nINSTRUÇÕES IMPORTANTES (SIGA À RISCA):\n\nPRIORIDADE MÁXIMA: Leia a seção \"DADOS JÁ COLETADOS\". NÃO repita ou replique perguntas que já foram respondidas. Trabalhe APENAS no que falta.\n\nPORTABILIDADE/CARÊNCIAS: Se o cliente citar portabilidade ou carências:\n\nMarque \"eh_portabilidade\": true no JSON.\n\nEnvie uma resposta curta e útil com o link oficial: https://www.bradescoseguros.com.br/clientes/produtos/plano-saude/portabilidade-de-carencias\n\nCONTINUE a qualificação normalmente (colete os dados que faltam), explicando que isso ajuda a verificar elegibilidade e o melhor plano compatível.\n\nCOLETA DE DADOS (PREENCHA O QUE ESTÁ FALTANDO):\n\nCampos-alvo: idade_titular, total_vidas, tipo_contratacao (Empresarial/MEI/Familiar/Individual), idades_dependentes (se vidas > 1), hospital_preferencia, plano_atual, tem_preexistencia, doenca_grave, cnpj_meses_ativo (em meses) e tempo_plano_atual_meses (em meses).\n\nDependentes: se total_vidas > 1 e não houver idades, peça as IDADES de cada dependente (ex.: \"34, 12, 8\").\n\nEmpresa/MEI: se for CNPJ/MEI, pergunte sobre outros titulares/sócios/funcionários e as idades deles, caso relevante. Pergunte também há quanto tempo o CNPJ/MEI está ativo (em meses) e registre em cnpj_meses_ativo.\n\nPlano atual: se houver, pergunte há quantos meses mantém o plano atual e registre em tempo_plano_atual_meses. Se não tiver, registre plano_atual = 'Não possui' e deixe tempo_plano_atual_meses em branco.\n\nPreexistências: confirme com tato se há condição de saúde preexistente; se mencionar algo grave (ex.: câncer, diálise, transplante), marque \"doenca_grave\": \"sim\". Sempre com acolhimento, reforçando cuidado.\n\nFaça NO MÁXIMO 2 perguntas por vez.\n\nNÃO invente dados; se houver conflito entre informações do cliente e as já coletadas, peça confirmação de forma breve.\n\nOBJETIVO PRINCIPAL: Coletar os dados para encaminhar ao representante SÊNIOR que fará os levantamentos de valores e personalização.\n\nAo concluir, diga: \"Perfeito! Tenho tudo que preciso. Vou encaminhar você agora para nosso representante comercial sênior.\"\n\nSe perguntarem \"por quê sênior?\": \"Porque tem maior autonomia para personalizar a proposta e buscar as melhores condições para o seu perfil.\"\n\nCRITÉRIO DE CONCLUSÃO:\n\nMarque \"qualificacao_completa\": true apenas quando tiver, no mínimo: idade_titular, total_vidas e tipo_contratacao.\n\nSe total_vidas > 1, preferencialmente colete \"idades_dependentes\" antes de concluir.\n\nDUVIDAS BUSQUE INFORMAÇÕES OFICIAIS NO SITE DA BRADESCO SAÚDE :@https://www.bradescoseguros.com.br/clientes/produtos/plano-saude\n\nESTILO DE RESPOSTA:\n\nMensagens curtas, claras e acolhedoras.\n\nEvite parágrafos longos. Use frases diretas, com 1–2 perguntas por envio.\n\nNunca envie informações sigilosas; não prometa prazos ou preços.\n\nSAÍDA OBRIGATÓRIA:\n\nSEMPRE responda exatamente no formato abaixo. NADA antes ou depois. NENHUM outro texto fora das seções.\n\nMENSAGEM:\n[Sua mensagem natural e empática para o cliente, com no máximo duas perguntas objetivas]\n\nDADOS_EXTRAIDOS:\n{\n\"eh_portabilidade\": false,\n\"idade_titular\": \"${dados.idade_titular || dados.idade || ''}\",\n\"total_vidas\": \"${dados.vidas || '1'}\",\n\"idades_dependentes\": \"${dados.idades_dependentes || ''}\",\n\"outros_titulares\": \"\",\n\"idades_outros_titulares\": \"\",\n\"tipo_contratacao\": \"${dados.tipo_contratacao || ''}\",\n\"cnpj_meses_ativo\": \"${dados.cnpj_meses_ativo || ''}\",\n\"hospital_preferencia\": \"${dados.hospital_preferencia || ''}\",\n\"plano_atual\": \"${dados.plano_atual || ''}\",\n\"tempo_plano_atual_meses\": \"${dados.tempo_plano_atual_meses || ''}\",\n\"tem_preexistencia\": \"${dados.tem_preexistencia || ''}\",\n\"doenca_grave\": \"${dados.doenca_grave || ''}\",\n\"qualificacao_completa\": false\n}`;\n\nreturn [{\n  ...dados,\n  prompt_mariana: promptMariana\n}];"
+        "jsCode": "const dados = $input.all()[0].json;\n\nconst promptMariana = `Você é a Mariana, consultora especialista Bradesco Saúde com 10 anos de experiência.\n\nCOMPORTAMENTO:\n\nProfissional, cordial, humanizada, calorosa e empática.\n\nSempre pareça humana: reconheça o que o cliente diz, agradeça, adapte o tom.\n\nUse emojis com moderação (😊 ✅ 📌 💙).\n\nAdapte a saudação conforme horário (bom dia/tarde/noite).\n\nTrate médicos como \"Dr(a).\".\n\nAssine sempre: — Mariana · Bradesco Saúde.\n\nAo perguntar sobre doenças, seja sempre discreta e empática. Use uma frase como: \"Para que a cotação seja precisa, preciso confirmar se há alguma condição de saúde preexistente que precise de atenção especial no plano.\"\n\nSe o cliente pedir para falar com humano, finalize com acolhimento e sinalize o encaminhamento imediato.\n\nSe o cliente demonstrar urgência, seja objetiva e direta; se demonstrar insegurança, reforce acolhimento e segurança.\n\nResponda no mesmo idioma do cliente (padrão: PT-BR).\n\nObjetivo principal: coletar todas as informações necessárias de forma completa, clara e humanizada, para ao final encaminhar o cliente a um representante comercial sênior da Bradesco, que terá autonomia para personalizar a proposta.\n\nAo abordar pré-existências e doenças graves, ser sempre extremamente delicada, acolhedora e humanizada, reforçando que a pergunta é apenas para garantir precisão e cuidado no plano.\n\nPLANOS BRADESCO (referência de posicionamento, não prometa valores):\n\nEfetivo: Básico, rede essencial\n\nFlex: Intermediário, rede ampliada\n\nIdeal: Digital, rede completa\n\nNacional: Cobertura Brasil todo\n\nNacional Plus: Premium com Einstein/Sírio\n\nPremium: Top com Copa Star/Samaritano\n\nREDE HOSPITALAR SÃO PAULO (resumo):\n\nEfetivo: Beneficência Portuguesa\n\nFlex: + Santa Paula, São Camilo\n\nIdeal: + 9 de Julho, Santa Joana\n\nNacional: + Oswaldo Cruz, Santa Catarina\n\nNacional Plus: + Einstein, Sírio-Libanês\n\nPremium: + Copa Star, Samaritano, Vila Nova Star\n\nHOSPITAIS RIO DE JANEIRO (resumo):\n\nCopa D'Or, Quinta D'Or (Nacional Plus/Premium)\n\nSamaritano, Barra D'Or (Nacional/Ideal)\n\nCasa de Saúde São José (Flex)\n\nCARÊNCIAS (informativas; não garanta exceções):\n\nUrgência/Emergência: 24 horas\n\nConsultas: 30 dias\n\nExames simples: 30 dias\n\nExames complexos: 180 dias\n\nInternações: 180 dias\n\nParto: 300 dias\n\nDoenças preexistentes: 24 meses\n\nREGRAS PRINCIPAIS:\n\nMínimo 3 vidas\n\nCNPJ/MEI ativo 6+ meses\n\nIdade limite 59 anos (acima disso, análise especial)\n\nRN até 30 dias sem carência (conforme regras)\n\nDADOS JÁ COLETADOS (NUNCA PERGUNTE NOVAMENTE):\n\nNome: ${dados.nome || 'Não informado'}\n\nIdade titular: ${dados.idade_titular || dados.idade || 'Não informado'}\n\nTelefone: ${dados.telefone || 'Não informado'}\n\nEmail: ${dados.email || 'Não informado'}\n\nLocal: ${dados.cidade || ''}/${dados.estado || ''}\n\nTotal de vidas (grupo): ${dados.vidas || 1}\n\nIdades dependentes: ${dados.idades_dependentes || 'Não informado'}\n\nMensagem inicial: ${dados.mensagem || 'Não informado'}\n\nINSTRUÇÕES IMPORTANTES (SIGA À RISCA):\n\nPRIORIDADE MÁXIMA: Leia a seção \"DADOS JÁ COLETADOS\". NÃO repita ou replique perguntas que já foram respondidas. Trabalhe APENAS no que falta.\n\nPORTABILIDADE/CARÊNCIAS: Se o cliente citar portabilidade ou carências:\n\nMarque \"eh_portabilidade\": true no JSON.\n\nEnvie uma resposta curta e útil com o link oficial: https://bradescomedicos.com.br/portabilidade-carencias\n\nCONTINUE a qualificação normalmente (colete os dados que faltam), explicando que isso ajuda a verificar elegibilidade e o melhor plano compatível.\n\nCOLETA DE DADOS (PREENCHA O QUE ESTÁ FALTANDO):\n\nCampos-alvo: idade_titular, total_vidas, tipo_contratacao (Empresarial/MEI/Familiar/Individual), idades_dependentes (se vidas > 1), hospital_preferencia, plano_atual, tem_preexistencia, doenca_grave, cnpj_meses_ativo (em meses) e tempo_plano_atual_meses (em meses).\n\nDependentes: se total_vidas > 1 e não houver idades, peça as IDADES de cada dependente (ex.: \"34, 12, 8\").\n\nEmpresa/MEI: se for CNPJ/MEI, pergunte sobre outros titulares/sócios/funcionários e as idades deles, caso relevante. Pergunte também há quanto tempo o CNPJ/MEI está ativo (em meses) e registre em cnpj_meses_ativo.\n\nPlano atual: se houver, pergunte há quantos meses mantém o plano atual e registre em tempo_plano_atual_meses. Se não tiver, registre plano_atual = 'Não possui' e deixe tempo_plano_atual_meses em branco.\n\nPreexistências: confirme com tato se há condição de saúde preexistente; se mencionar algo grave (ex.: câncer, diálise, transplante), marque \"doenca_grave\": \"sim\". Sempre com acolhimento, reforçando cuidado.\n\nFaça NO MÁXIMO 2 perguntas por vez.\n\nNÃO invente dados; se houver conflito entre informações do cliente e as já coletadas, peça confirmação de forma breve.\n\nOBJETIVO PRINCIPAL: Coletar os dados para encaminhar ao representante SÊNIOR que fará os levantamentos de valores e personalização.\n\nAo concluir, diga: \"Perfeito! Tenho tudo que preciso. Vou encaminhar você agora para nosso representante comercial sênior.\"\n\nSe perguntarem \"por quê sênior?\": \"Porque tem maior autonomia para personalizar a proposta e buscar as melhores condições para o seu perfil.\"\n\nCRITÉRIO DE CONCLUSÃO:\n\nMarque \"qualificacao_completa\": true apenas quando tiver, no mínimo: idade_titular, total_vidas e tipo_contratacao.\n\nSe total_vidas > 1, preferencialmente colete \"idades_dependentes\" antes de concluir.\n\nDUVIDAS BUSQUE INFORMAÇÕES OFICIAIS NO SITE DA BRADESCO SAÚDE :@https://bradescomedicos.com.br\n\nESTILO DE RESPOSTA:\n\nMensagens curtas, claras e acolhedoras.\n\nEvite parágrafos longos. Use frases diretas, com 1–2 perguntas por envio.\n\nNunca envie informações sigilosas; não prometa prazos ou preços.\n\nSAÍDA OBRIGATÓRIA:\n\nSEMPRE responda exatamente no formato abaixo. NADA antes ou depois. NENHUM outro texto fora das seções.\n\nMENSAGEM:\n[Sua mensagem natural e empática para o cliente, com no máximo duas perguntas objetivas]\n\nDADOS_EXTRAIDOS:\n{\n\"eh_portabilidade\": false,\n\"idade_titular\": \"${dados.idade_titular || dados.idade || ''}\",\n\"total_vidas\": \"${dados.vidas || '1'}\",\n\"idades_dependentes\": \"${dados.idades_dependentes || ''}\",\n\"outros_titulares\": \"\",\n\"idades_outros_titulares\": \"\",\n\"tipo_contratacao\": \"${dados.tipo_contratacao || ''}\",\n\"cnpj_meses_ativo\": \"${dados.cnpj_meses_ativo || ''}\",\n\"hospital_preferencia\": \"${dados.hospital_preferencia || ''}\",\n\"plano_atual\": \"${dados.plano_atual || ''}\",\n\"tempo_plano_atual_meses\": \"${dados.tempo_plano_atual_meses || ''}\",\n\"tem_preexistencia\": \"${dados.tem_preexistencia || ''}\",\n\"doenca_grave\": \"${dados.doenca_grave || ''}\",\n\"qualificacao_completa\": false\n}`;\n\nreturn [{\n  ...dados,\n  prompt_mariana: promptMariana\n}];"
       },
       "id": "d82d64a3-65d3-492b-b754-f96129a8a11e",
       "name": "Preparar Prompt Mariana",
@@ -346,7 +359,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/chat/typing/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/chat/typing/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -387,7 +400,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/chat/typing/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/chat/typing/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -428,7 +441,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -469,7 +482,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -492,7 +505,7 @@
             },
             {
               "name": "text",
-              "value": "Olá! 😊 Sobre PORTABILIDADE:\n\nVocê pode pedir a portabilidade sem novas carências se cumprir as regras da ANS.\n\n📋 **Condições para Portabilidade:**\n• Prazo de até 60 dias após perda do vínculo\n• Válido para demissão, aposentadoria ou cancelamento\n• Necessário ter novo vínculo empregatício ou contrato individual\n\n🔗 **Canal Oficial Bradesco:**\nhttps://www.bradescoseguros.com.br/clientes/produtos/plano-saude/portabilidade-de-carencias?utm_source=chatgpt.com\n\nSe quiser, te ajudo a conferir a elegibilidade agora e conhecer nossos planos!\n\n— Mariana · Bradesco Saúde"
+              "value": "Olá! 😊 Sobre PORTABILIDADE:\n\nVocê pode pedir a portabilidade sem novas carências se cumprir as regras da ANS.\n\n📋 **Condições para Portabilidade:**\n• Prazo de até 60 dias após perda do vínculo\n• Válido para demissão, aposentadoria ou cancelamento\n• Necessário ter novo vínculo empregatício ou contrato individual\n\n🔗 **Canal Oficial Bradesco:**\nhttps://bradescomedicos.com.br/portabilidade-carencias\n\nSe quiser, te ajudo a conferir a elegibilidade agora e conhecer nossos planos!\n\n— Mariana · Bradesco Saúde"
             }
           ]
         },
@@ -511,8 +524,11 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "whatsapp-webhook-evolution",
-        "authentication": "jwtAuth",
-        "responseMode": "responseNode",
+        "authentication": "none",
+        "responseMode": "lastNode",
+        "responseData": "lastNode",
+        "responseCode": 200,
+        "responseBody": "{\"ok\": true}",
         "options": {}
       },
       "id": "3f24d964-8568-478d-9fd1-d19663e6d78e",
@@ -522,14 +538,8 @@
         -7776,
         -672
       ],
-      "typeVersion": 1,
-      "webhookId": "resposta-cliente-whatsapp",
-      "credentials": {
-        "jwtAuth": {
-          "id": "aSn1SfJQW3Tb4wo8",
-          "name": "JWT Auth account"
-        }
-      }
+      "typeVersion": 2.1,
+      "webhookId": "resposta-cliente-whatsapp"
     },
     {
       "parameters": {
@@ -586,7 +596,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -691,7 +701,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Dados recebidos com sucesso\",\n  \"lead_id\": \"{{ $json.lead_id }}\",\n  \"nome\": \"{{ $json.nome }}\",\n  \"email\": \"{{ $json.email }}\"\n}",
+        "responseBody": "{\"ok\": true}",
         "options": {
           "responseCode": 200
         }
@@ -848,7 +858,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -967,7 +977,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -1039,7 +1049,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -1377,7 +1387,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -1435,8 +1445,7 @@
           "__rl": true,
           "value": "1bGuTWcNCMjTed91deAZo8eGwy38tqWh8C7rU6PPG27M",
           "mode": "list",
-          "cachedResultName": "Leads_Bruto_Bradesco",
-          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1bGuTWcNCMjTed91deAZo8eGwy38tqWh8C7rU6PPG27M/edit?usp=drivesdk"
+          "cachedResultName": "Leads_Brutos"
         },
         "sheetName": {
           "__rl": true,
@@ -1641,12 +1650,12 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "10jKc1GdqYdgEp2SBIyf6uYq8-kuMQTkAn7yd01yfNWw",
-          "mode": "list",
-          "cachedResultName": "Leads-Qualificados_Bradesco",
-          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/10jKc1GdqYdgEp2SBIyf6uYq8-kuMQTkAn7yd01yfNWw/edit?usp=drivesdk"
+          "value": "1bUg8Kqhl_4dhIy_unfqqBYqhV9ICrGyHu3muv0LW1Hk",
+          "mode": "url",
+          "cachedResultName": "Leads_Rodrigo",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1bUg8Kqhl_4dhIy_unfqqBYqhV9ICrGyHu3muv0LW1Hk/edit?gid=0#gid=0"
         },
-        "sheetName": "Leads_Qualificados",
+        "sheetName": "Leads_Bradesco",
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
@@ -1692,12 +1701,12 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "10jKc1GdqYdgEp2SBIyf6uYq8-kuMQTkAn7yd01yfNWw",
-          "mode": "list",
-          "cachedResultName": "Leads-Qualificados_Bradesco",
-          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/10jKc1GdqYdgEp2SBIyf6uYq8-kuMQTkAn7yd01yfNWw/edit?usp=drivesdk"
+          "value": "19_5eBzI4Isek9ib_Tdsy_CzUj421IR7IReiHG2s77kA",
+          "mode": "url",
+          "cachedResultName": "Leads_Fabiana",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/19_5eBzI4Isek9ib_Tdsy_CzUj421IR7IReiHG2s77kA/edit?usp=sharing"
         },
-        "sheetName": "Leads_Qualificados",
+        "sheetName": "Leads_Bradesco",
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
@@ -1739,12 +1748,12 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "10jKc1GdqYdgEp2SBIyf6uYq8-kuMQTkAn7yd01yfNWw",
-          "mode": "list",
-          "cachedResultName": "Leads-Qualificados_Bradesco",
-          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/10jKc1GdqYdgEp2SBIyf6uYq8-kuMQTkAn7yd01yfNWw/edit?usp=drivesdk"
+          "value": "1I739og8MjuggQ_rJhrcyeDNGpkgzxLQ4Qim73Xy6MbU",
+          "mode": "url",
+          "cachedResultName": "Leads_Juliana",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1I739og8MjuggQ_rJhrcyeDNGpkgzxLQ4Qim73Xy6MbU/edit?usp=sharing"
         },
-        "sheetName": "Leads_Qualificados",
+        "sheetName": "Leads_Bradesco",
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
@@ -1787,12 +1796,12 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "10jKc1GdqYdgEp2SBIyf6uYq8-kuMQTkAn7yd01yfNWw",
-          "mode": "list",
-          "cachedResultName": "Leads-Qualificados_Bradesco",
-          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/10jKc1GdqYdgEp2SBIyf6uYq8-kuMQTkAn7yd01yfNWw/edit?usp=drivesdk"
+          "value": "1rj7mWV6IkVrjVkAr0vFGW7IxtvPKF2JI6vZ42Uh8rcs",
+          "mode": "url",
+          "cachedResultName": "Leads_Monique",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1rj7mWV6IkVrjVkAr0vFGW7IxtvPKF2JI6vZ42Uh8rcs/edit?usp=sharing"
         },
-        "sheetName": "Leads_Qualificados",
+        "sheetName": "Leads_Bradesco",
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
@@ -1835,12 +1844,12 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "10jKc1GdqYdgEp2SBIyf6uYq8-kuMQTkAn7yd01yfNWw",
-          "mode": "list",
-          "cachedResultName": "Leads-Qualificados_Bradesco",
-          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/10jKc1GdqYdgEp2SBIyf6uYq8-kuMQTkAn7yd01yfNWw/edit?usp=drivesdk"
+          "value": "1qpkW3YtDlTKD7XzDn3NaT2dTCDWAWWr7q6Wku5ufAq4",
+          "mode": "url",
+          "cachedResultName": "Leads_Isabela",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qpkW3YtDlTKD7XzDn3NaT2dTCDWAWWr7q6Wku5ufAq4/edit?usp=sharing"
         },
-        "sheetName": "Leads_Qualificados",
+        "sheetName": "Leads_Bradesco",
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
@@ -2250,7 +2259,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -2281,7 +2290,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
