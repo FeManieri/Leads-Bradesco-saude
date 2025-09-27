@@ -6,7 +6,7 @@
         "httpMethod": "POST",
         "path": "WEBHOOK/BRADESCO",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -33,9 +33,32 @@
     },
     {
       "parameters": {
+        "values": {
+          "boolean": [
+            {
+              "name": "remarketing_on",
+              "value": true
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "id": "ctrl-remarketing-001",
+      "name": "CTRL",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        -7328,
+        -1440
+      ],
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {
         "resource": "chat",
         "model": "gpt-4o-mini",
-        "options": {},
+        "options": {"continueOnFail": true},
         "requestOptions": {}
       },
       "id": "67aedd3f-cfdb-4122-8d8e-e157de1a7042",
@@ -57,7 +80,7 @@
       "parameters": {
         "resource": "chat",
         "model": "gpt-4o-mini",
-        "options": {},
+        "options": {"continueOnFail": true},
         "requestOptions": {}
       },
       "id": "62218a2e-8acb-49ec-a8dd-0554121922dd",
@@ -79,7 +102,7 @@
       "parameters": {
         "resource": "chat",
         "model": "gpt-4o-mini",
-        "options": {},
+        "options": {"continueOnFail": true},
         "requestOptions": {}
       },
       "id": "99814184-3558-4f86-a3df-6232eebc35c1",
@@ -127,7 +150,7 @@
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "f985bfd6-254b-4c02-9aaf-70ef180cbe29",
       "name": "Condição de Parada Loop",
@@ -141,13 +164,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -168,7 +191,7 @@
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "b21dc154-8b30-4465-b8c0-86f08748a5aa",
       "name": "WhatsApp Enviar Mariana (continuação)",
@@ -181,20 +204,7 @@
     },
     {
       "parameters": {
-        "jsCode": "try {\n  // 1) Entrada tolerante (string JSON ou objeto)\n  let dados = {};\n  try {\n    const raw = $input.all()[0].json?.body ?? $input.all()[0].json ?? {};\n    dados = (typeof raw === 'string') ? JSON.parse(raw) : (raw || {});\n  } catch (e) {\n    console.error('Entrada não era JSON válido; seguindo com objeto vazio:', e);\n    dados = {};\n  }\n\n  // 2) Helpers\n  const limparTelefone = (telefone) => {\n    if (!telefone) return '';\n    const limpo = String(telefone).replace(/\\D/g, '').slice(-11);\n    return (limpo.length >= 10 && limpo.length <= 11) ? limpo : '';\n  };\n\n  // aceita \"dd/MM/yyyy\" ou ISO \"yyyy-MM-dd\"\n  const calcularIdade = (dataNascimento) => {\n    if (!dataNascimento) return '';\n    let d;\n    if (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(String(dataNascimento))) {\n      const [dd, mm, yyyy] = String(dataNascimento).split('/').map(n => parseInt(n, 10));\n      d = new Date(yyyy, mm - 1, dd);\n    } else {\n      d = new Date(dataNascimento);\n    }\n    if (isNaN(d.getTime())) return '';\n    const hoje = new Date();\n    let idade = hoje.getFullYear() - d.getFullYear();\n    const m = hoje.getMonth() - d.getMonth();\n    if (m < 0 || (m === 0 && hoje.getDate() < d.getDate())) idade--;\n    return idade > 0 ? String(idade) : '';\n  };\n\n  const validarEmail = (email) => {\n    if (!email) return '';\n    const re = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    return re.test(String(email).trim()) ? String(email).trim() : '';\n  };\n\n  const toBucket = (raw) => {\n    if (raw >= 70) return { classificacao: 'Alta', score: 80 };\n    if (raw >= 50) return { classificacao: 'Média', score: 60 };\n    if (raw >= 30) return { classificacao: 'Baixa', score: 40 };\n    return { classificacao: 'Muito Baixa', score: 20 };\n  };\n\n  const calcularScore = (d) => {\n    let score = 0;\n\n    // Base (dados de qualidade)\n    if (d.nome && String(d.nome).trim().length > 2) score += 20;\n    if (d.email && validarEmail(d.email)) score += 20;\n    if ((d.telefone && limparTelefone(d.telefone)) || (d.telefone_limpo && limparTelefone(d.telefone_limpo))) score += 20;\n    if (d.estado && String(d.estado).trim().length > 1) score += 10;\n    if (d.cidade && String(d.cidade).trim().length > 1) score += 10;\n    const totalVidas = parseInt(d.total_vidas ?? d.vidas ?? 0, 10) || 0;\n    if (totalVidas > 0) score += 10;\n    if (d.mensagem && String(d.mensagem).trim().length > 10) score += 10;\n\n    // Penalidades e bônus de negócio\n    const idade = parseInt(d.idade_titular ?? d.idade ?? 0, 10) || 0;\n    if (idade >= 60 && idade <= 68) score -= 15;\n    else if (idade >= 69) score -= 35;\n\n    const preexist = String(d.tem_preexistencia || '').toLowerCase();\n    if (preexist.startsWith('sim')) score -= 20;\n\n    const grave = String(d.doenca_grave || '').toLowerCase();\n    if (grave.startsWith('sim')) score -= 35;\n\n    if (totalVidas > 0 && totalVidas < 3) score -= 15;\n\n    const tipo = String(d.tipo_contratacao || '').toLowerCase();\n    if ((tipo.includes('empres') || tipo.includes('mei')) && totalVidas > 0 && totalVidas < 3) score -= 10;\n\n    const cnpjMeses = parseInt(d.cnpj_meses_ativo ?? 0, 10) || 0;\n    if ((tipo.includes('empres') || tipo.includes('mei')) && cnpjMeses > 0 && cnpjMeses < 6) score -= 25;\n\n    const plano = String(d.plano_atual || '').trim();\n    const tempoPlanoMeses = parseInt(d.tempo_plano_atual_meses ?? 0, 10) || 0;\n    if (!plano || plano.toLowerCase() === 'não possui' || plano.toLowerCase() === 'nao possui') {\n      score += 10;\n    } else if (tempoPlanoMeses >= 24) {\n      score += 15;\n    }\n\n    const score_bruto = Math.max(0, Math.min(100, score));\n    const bucket = toBucket(score_bruto);\n    return { score_bruto, score: bucket.score, classificacao: bucket.classificacao };\n  };\n\n  // 3) Normalizações\n  const telefoneLimpo = limparTelefone(dados.telefone || dados.from);\n  const idadeCalculada = calcularIdade(dados.nascimento);\n  const emailValidado = validarEmail(dados.email);\n\n  const bucket = calcularScore(dados);\n\n  // 4) Saída padronizada (mantém TODOS os campos que o seu fluxo usa)\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: String(dados.nome || '').trim(),\n    email: emailValidado,\n    telefone: String(dados.telefone || ''),\n    telefone_limpo: telefoneLimpo,\n    nascimento: String(dados.nascimento || ''),\n    estado: String(dados.estado || '').trim(),\n    cidade: String(dados.cidade || '').trim(),\n    vidas: parseInt(dados.vidas, 10) || 1,\n    total_vidas: parseInt(dados.total_vidas ?? dados.vidas ?? 0, 10) || (parseInt(dados.vidas, 10) || 1),\n    mensagem: String(dados.mensagem || '').trim(),\n    timestamp: new Date().toISOString(),\n\n    // idade em dois campos porque o resto do fluxo usa ambos\n    idade: idadeCalculada,\n    idade_titular: idadeCalculada,\n\n    // novos campos suportados\n    cnpj_meses_ativo: dados.cnpj_meses_ativo ?? '',\n    tempo_plano_atual_meses: dados.tempo_plano_atual_meses ?? '',\n    tipo_contratacao: dados.tipo_contratacao ?? (dados.tipo || ''),\n    tem_preexistencia: dados.tem_preexistencia ?? '',\n    doenca_grave: dados.doenca_grave ?? '',\n    plano_atual: dados.plano_atual ?? '',\n\n    status: 'Novo - Aguardando IA',\n    classificacao: bucket.classificacao,\n    classificacao_inicial: bucket.classificacao,\n\n    score_bruto: bucket.score_bruto,\n    score: bucket.score,\n    score_inicial: bucket.score,\n\n    remarketing_data: '',\n    telefone_valido: Boolean(telefoneLimpo),\n    telefone_invalido: !telefoneLimpo,\n    dados_validos: Boolean(telefoneLimpo && String(dados.nome || '').trim().length > 2)\n  }];\n\n} catch (error) {\n  console.error('Erro ao processar dados iniciais:', error);\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: 'Erro no processamento',\n    email: '',\n    telefone: '',\n    telefone_limpo: '',\n    nascimento: '',\n    estado: '',\n    cidade: '',\n    vidas: 1,\n    mensagem: 'Erro ao processar dados iniciais',\n    timestamp: new Date().toISOString(),\n    idade: '',\n    idade_titular: '',\n    status: 'Erro - Dados Inválidos',\n    classificacao: 'Muito Baixa',\n    classificacao_inicial: 'Muito Baixa',\n    score: 0,\n    score_inicial: 0,\n    score_bruto: 0,\n    remarketing_data: '',\n    telefone_valido: false,\n    telefone_invalido: true,\n    dados_validos: false,\n    erro_processamento: error.message\n  }];\n}"
-      },
-      "id": "d3e3475e-dea1-4d93-9601-312d01a3ee45",
-      "name": "Processar Dados Iniciais",
-      "type": "n8n-nodes-base.code",
-      "position": [
-        -7152,
-        -1280
-      ],
-      "typeVersion": 2
-    },
-    {
-      "parameters": {
-        "jsCode": "try {\n  // 1) Entrada tolerante (string JSON ou objeto)\n  let dados = {};\n  try {\n    const raw = $input.all()[0].json?.body ?? $input.all()[0].json ?? {};\n    dados = (typeof raw === 'string') ? JSON.parse(raw) : (raw || {});\n  } catch (e) {\n    console.error('Entrada não era JSON válido; seguindo com objeto vazio:', e);\n    dados = {};\n  }\n\n  // 2) Helpers\n  const limparTelefone = (telefone) => {\n    if (!telefone) return '';\n    const limpo = String(telefone).replace(/\\D/g, '').slice(-11);\n    return (limpo.length >= 10 && limpo.length <= 11) ? limpo : '';\n  };\n\n  // aceita \"dd/MM/yyyy\" ou ISO \"yyyy-MM-dd\"\n  const calcularIdade = (dataNascimento) => {\n    if (!dataNascimento) return '';\n    let d;\n    if (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(String(dataNascimento))) {\n      const [dd, mm, yyyy] = String(dataNascimento).split('/').map(n => parseInt(n, 10));\n      d = new Date(yyyy, mm - 1, dd);\n    } else {\n      d = new Date(dataNascimento);\n    }\n    if (isNaN(d.getTime())) return '';\n    const hoje = new Date();\n    let idade = hoje.getFullYear() - d.getFullYear();\n    const m = hoje.getMonth() - d.getMonth();\n    if (m < 0 || (m === 0 && hoje.getDate() < d.getDate())) idade--;\n    return idade > 0 ? String(idade) : '';\n  };\n\n  const validarEmail = (email) => {\n    if (!email) return '';\n    const re = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    return re.test(String(email).trim()) ? String(email).trim() : '';\n  };\n\n  const toBucket = (raw) => {\n    if (raw >= 70) return { classificacao: 'Alta', score: 80 };\n    if (raw >= 50) return { classificacao: 'Média', score: 60 };\n    if (raw >= 30) return { classificacao: 'Baixa', score: 40 };\n    return { classificacao: 'Muito Baixa', score: 20 };\n  };\n\n  const calcularScore = (d) => {\n    let score = 0;\n\n    // Base (dados de qualidade)\n    if (d.nome && String(d.nome).trim().length > 2) score += 20;\n    if (d.email && validarEmail(d.email)) score += 20;\n    if ((d.telefone && limparTelefone(d.telefone)) || (d.telefone_limpo && limparTelefone(d.telefone_limpo))) score += 20;\n    if (d.estado && String(d.estado).trim().length > 1) score += 10;\n    if (d.cidade && String(d.cidade).trim().length > 1) score += 10;\n    const totalVidas = parseInt(d.total_vidas ?? d.vidas ?? 0, 10) || 0;\n    if (totalVidas > 0) score += 10;\n    if (d.mensagem && String(d.mensagem).trim().length > 10) score += 10;\n\n    // Penalidades e bônus de negócio\n    const idade = parseInt(d.idade_titular ?? d.idade ?? 0, 10) || 0;\n    if (idade >= 60 && idade <= 68) score -= 15;\n    else if (idade >= 69) score -= 35;\n\n    const preexist = String(d.tem_preexistencia || '').toLowerCase();\n    if (preexist.startsWith('sim')) score -= 20;\n\n    const grave = String(d.doenca_grave || '').toLowerCase();\n    if (grave.startsWith('sim')) score -= 35;\n\n    if (totalVidas > 0 && totalVidas < 3) score -= 15;\n\n    const tipo = String(d.tipo_contratacao || '').toLowerCase();\n    if ((tipo.includes('empres') || tipo.includes('mei')) && totalVidas > 0 && totalVidas < 3) score -= 10;\n\n    const cnpjMeses = parseInt(d.cnpj_meses_ativo ?? 0, 10) || 0;\n    if ((tipo.includes('empres') || tipo.includes('mei')) && cnpjMeses > 0 && cnpjMeses < 6) score -= 25;\n\n    const plano = String(d.plano_atual || '').trim();\n    const tempoPlanoMeses = parseInt(d.tempo_plano_atual_meses ?? 0, 10) || 0;\n    if (!plano || plano.toLowerCase() === 'não possui' || plano.toLowerCase() === 'nao possui') {\n      score += 10;\n    } else if (tempoPlanoMeses >= 24) {\n      score += 15;\n    }\n\n    const score_bruto = Math.max(0, Math.min(100, score));\n    const bucket = toBucket(score_bruto);\n    return { score_bruto, score: bucket.score, classificacao: bucket.classificacao };\n  };\n\n  // 3) Normalizações\n  const telefoneLimpo = limparTelefone(dados.telefone || dados.from);\n  const idadeCalculada = calcularIdade(dados.nascimento);\n  const emailValidado = validarEmail(dados.email);\n\n  const bucket = calcularScore(dados);\n\n  // 4) Saída padronizada (mantém TODOS os campos que o seu fluxo usa)\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: String(dados.nome || '').trim(),\n    email: emailValidado,\n    telefone: String(dados.telefone || ''),\n    telefone_limpo: telefoneLimpo,\n    nascimento: String(dados.nascimento || ''),\n    estado: String(dados.estado || '').trim(),\n    cidade: String(dados.cidade || '').trim(),\n    vidas: parseInt(dados.vidas, 10) || 1,\n    total_vidas: parseInt(dados.total_vidas ?? dados.vidas ?? 0, 10) || (parseInt(dados.vidas, 10) || 1),\n    mensagem: String(dados.mensagem || '').trim(),\n    timestamp: new Date().toISOString(),\n\n    // idade em dois campos porque o resto do fluxo usa ambos\n    idade: idadeCalculada,\n    idade_titular: idadeCalculada,\n\n    // novos campos suportados\n    cnpj_meses_ativo: dados.cnpj_meses_ativo ?? '',\n    tempo_plano_atual_meses: dados.tempo_plano_atual_meses ?? '',\n    tipo_contratacao: dados.tipo_contratacao ?? (dados.tipo || ''),\n    tem_preexistencia: dados.tem_preexistencia ?? '',\n    doenca_grave: dados.doenca_grave ?? '',\n    plano_atual: dados.plano_atual ?? '',\n\n    status: 'Novo - Aguardando IA',\n    classificacao: bucket.classificacao,\n    classificacao_inicial: bucket.classificacao,\n\n    score_bruto: bucket.score_bruto,\n    score: bucket.score,\n    score_inicial: bucket.score,\n\n    remarketing_data: '',\n    telefone_valido: Boolean(telefoneLimpo),\n    telefone_invalido: !telefoneLimpo,\n    dados_validos: Boolean(telefoneLimpo && String(dados.nome || '').trim().length > 2)\n  }];\n\n} catch (error) {\n  console.error('Erro ao processar dados iniciais:', error);\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: 'Erro no processamento',\n    email: '',\n    telefone: '',\n    telefone_limpo: '',\n    nascimento: '',\n    estado: '',\n    cidade: '',\n    vidas: 1,\n    mensagem: 'Erro ao processar dados iniciais',\n    timestamp: new Date().toISOString(),\n    idade: '',\n    idade_titular: '',\n    status: 'Erro - Dados Inválidos',\n    classificacao: 'Muito Baixa',\n    classificacao_inicial: 'Muito Baixa',\n    score: 0,\n    score_inicial: 0,\n    score_bruto: 0,\n    remarketing_data: '',\n    telefone_valido: false,\n    telefone_invalido: true,\n    dados_validos: false,\n    erro_processamento: error.message\n  }];\n}"
+        "jsCode": "try {\n  // 1) Entrada tolerante (cabeçalhos -> body -> json)\n  let dados = {};\n  try {\n    let raw = $input.all()[0].json || {};\n    const headersJson = raw?.cabeçalhos;\n    const base = headersJson ? JSON.parse(headersJson) : (raw.body ?? raw);\n    dados = (typeof base === 'string') ? JSON.parse(base) : (base || {});\n  } catch (e) {\n    console.error('Entrada não era JSON válido; seguindo com objeto vazio:', e);\n    dados = {};\n  }\n\n  // 2) Helpers\n  const limparTelefone = (telefone) => {\n    if (!telefone) return '';\n    const limpo = String(telefone).replace(/\\D/g, '').slice(-11);\n    return (limpo.length >= 10 && limpo.length <= 11) ? limpo : '';\n  };\n\n  // aceita \"dd/MM/yyyy\" ou ISO \"yyyy-MM-dd\"\n  const calcularIdade = (dataNascimento) => {\n    if (!dataNascimento) return '';\n    let d;\n    if (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(String(dataNascimento))) {\n      const [dd, mm, yyyy] = String(dataNascimento).split('/').map(n => parseInt(n, 10));\n      d = new Date(yyyy, mm - 1, dd);\n    } else {\n      d = new Date(dataNascimento);\n    }\n    if (isNaN(d.getTime())) return '';\n    const hoje = new Date();\n    let idade = hoje.getFullYear() - d.getFullYear();\n    const m = hoje.getMonth() - d.getMonth();\n    if (m < 0 || (m === 0 && hoje.getDate() < d.getDate())) idade--;\n    return idade > 0 ? String(idade) : '';\n  };\n\n  const validarEmail = (email) => {\n    if (!email) return '';\n    const re = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    return re.test(String(email).trim()) ? String(email).trim() : '';\n  };\n\n  const toBucket = (raw) => {\n    if (raw >= 70) return { classificacao: 'Alta', score: 80 };\n    if (raw >= 50) return { classificacao: 'Média', score: 60 };\n    if (raw >= 30) return { classificacao: 'Baixa', score: 40 };\n    return { classificacao: 'Muito Baixa', score: 20 };\n  };\n\n  const calcularScore = (d) => {\n    let score = 0;\n\n    // Base (dados de qualidade)\n    if (d.nome && String(d.nome).trim().length > 2) score += 20;\n    if (d.email && validarEmail(d.email)) score += 20;\n    if ((d.telefone && limparTelefone(d.telefone)) || (d.telefone_limpo && limparTelefone(d.telefone_limpo))) score += 20;\n    if (d.estado && String(d.estado).trim().length > 1) score += 10;\n    if (d.cidade && String(d.cidade).trim().length > 1) score += 10;\n    const totalVidas = parseInt(d.total_vidas ?? d.vidas ?? 0, 10) || 0;\n    if (totalVidas > 0) score += 10;\n    if (d.mensagem && String(d.mensagem).trim().length > 10) score += 10;\n\n    // Penalidades e bônus de negócio\n    const idade = parseInt(d.idade_titular ?? d.idade ?? 0, 10) || 0;\n    if (idade >= 60 && idade <= 68) score -= 15;\n    else if (idade >= 69) score -= 35;\n\n    const preexist = String(d.tem_preexistencia || '').toLowerCase();\n    if (preexist.startsWith('sim')) score -= 20;\n\n    const grave = String(d.doenca_grave || '').toLowerCase();\n    if (grave.startsWith('sim')) score -= 35;\n\n    if (totalVidas > 0 && totalVidas < 3) score -= 15;\n\n    const tipo = String(d.tipo_contratacao || '').toLowerCase();\n    if ((tipo.includes('empres') || tipo.includes('mei')) && totalVidas > 0 && totalVidas < 3) score -= 10;\n\n    const cnpjMeses = parseInt(d.cnpj_meses_ativo ?? 0, 10) || 0;\n    if ((tipo.includes('empres') || tipo.includes('mei')) && cnpjMeses > 0 && cnpjMeses < 6) score -= 25;\n\n    const plano = String(d.plano_atual || '').trim();\n    const tempoPlanoMeses = parseInt(d.tempo_plano_atual_meses ?? 0, 10) || 0;\n    if (!plano || plano.toLowerCase() === 'não possui' || plano.toLowerCase() === 'nao possui') {\n      score += 10;\n    } else if (tempoPlanoMeses >= 24) {\n      score += 15;\n    }\n\n    const score_bruto = Math.max(0, Math.min(100, score));\n    const bucket = toBucket(score_bruto);\n    return { score_bruto, score: bucket.score, classificacao: bucket.classificacao };\n  };\n\n  // 3) Normalizações\n  const telefoneLimpo = limparTelefone(dados.telefone || dados.from);\n  const idadeCalculada = calcularIdade(dados.nascimento);\n  const emailValidado = validarEmail(dados.email);\n\n  const bucket = calcularScore(dados);\n\n  // 4) Saída padronizada (mantém TODOS os campos que o seu fluxo usa)\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: String(dados.nome || '').trim(),\n    email: emailValidado,\n    telefone: String(dados.telefone || ''),\n    telefone_limpo: telefoneLimpo,\n    nascimento: String(dados.nascimento || ''),\n    estado: String(dados.estado || '').trim(),\n    cidade: String(dados.cidade || '').trim(),\n    vidas: parseInt(dados.vidas, 10) || 1,\n    total_vidas: parseInt(dados.total_vidas ?? dados.vidas ?? 0, 10) || (parseInt(dados.vidas, 10) || 1),\n    mensagem: String(dados.mensagem || '').trim(),\n    timestamp: new Date().toISOString(),\n\n    // idade em dois campos porque o resto do fluxo usa ambos\n    idade: idadeCalculada,\n    idade_titular: idadeCalculada,\n\n    // novos campos suportados\n    cnpj_meses_ativo: dados.cnpj_meses_ativo ?? '',\n    tempo_plano_atual_meses: dados.tempo_plano_atual_meses ?? '',\n    tipo_contratacao: dados.tipo_contratacao ?? (dados.tipo || ''),\n    tem_preexistencia: dados.tem_preexistencia ?? '',\n    doenca_grave: dados.doenca_grave ?? '',\n    plano_atual: dados.plano_atual ?? '',\n\n    status: 'Novo - Aguardando IA',\n    classificacao: bucket.classificacao,\n    classificacao_inicial: bucket.classificacao,\n\n    score_bruto: bucket.score_bruto,\n    score: bucket.score,\n    score_inicial: bucket.score,\n\n    remarketing_data: '',\n    telefone_valido: Boolean(telefoneLimpo),\n    telefone_invalido: !telefoneLimpo,\n    dados_validos: Boolean(telefoneLimpo && String(dados.nome || '').trim().length > 2)\n  }];\n\n} catch (error) {\n  console.error('Erro ao processar dados iniciais:', error);\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: 'Erro no processamento',\n    email: '',\n    telefone: '',\n    telefone_limpo: '',\n    nascimento: '',\n    estado: '',\n    cidade: '',\n    vidas: 1,\n    mensagem: 'Erro ao processar dados iniciais',\n    timestamp: new Date().toISOString(),\n    idade: '',\n    idade_titular: '',\n    status: 'Erro - Dados Inválidos',\n    classificacao: 'Muito Baixa',\n    classificacao_inicial: 'Muito Baixa',\n    score: 0,\n    score_inicial: 0,\n    score_bruto: 0,\n    remarketing_data: '',\n    telefone_valido: false,\n    telefone_invalido: true,\n    dados_validos: false,\n    erro_processamento: error.message\n  }];\n}"
       },
       "id": "d3e3475e-dea1-4d93-9601-312d01a3ee45",
       "name": "Processar Dados Iniciais",
@@ -210,7 +220,7 @@
         "sendTo": "contato@abmixcorretora.com.br",
         "subject": "🔔 Novo Lead #{{$json.lead_id}} - {{$json.nome}}",
         "message": "<table border=\"1\" style=\"border-collapse:collapse\">\n<tr><td><b>ID</b></td><td>{{$json.lead_id}}</td></tr>\n<tr><td><b>Nome</b></td><td>{{$json.nome}}</td></tr>\n<tr><td><b>Telefone</b></td><td>{{$json.telefone_limpo}}</td></tr>\n<tr><td><b>Email</b></td><td>{{$json.email}}</td></tr>\n<tr><td><b>Cidade/UF</b></td><td>{{$json.cidade}}/{{$json.estado}}</td></tr>\n<tr><td><b>Vidas</b></td><td>{{$json.vidas}}</td></tr>\n<tr><td><b>Mensagem</b></td><td>{{$json.mensagem}}</td></tr>\n<tr><td><b>Classificação</b></td><td>{{$json.classificacao_inicial}} ({{$json.score_inicial}})</td></tr>\n</table>",
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "60864b89-bfe9-44b4-9855-91e33328f937",
       "name": "Email Controle Interno",
@@ -231,13 +241,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -258,7 +268,7 @@
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "f18141fd-1f5c-4372-9a27-8f6e1e4e092c",
       "name": "WhatsApp Resposta Inicial",
@@ -272,13 +282,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/chat/typing/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendPresence/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -294,12 +304,12 @@
               "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
             },
             {
-              "name": "state",
-              "value": "on"
+              "name": "presence",
+              "value": "composing"
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "4da1f446-cada-49d5-9b66-dc089a1d50d7",
       "name": "Status Digitando ON",
@@ -359,13 +369,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/chat/typing/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendPresence/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -381,12 +391,12 @@
               "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
             },
             {
-              "name": "state",
-              "value": "off"
+              "name": "presence",
+              "value": "paused"
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "44969ecc-1256-42fd-995e-605a9eddd447",
       "name": "Status Digitando OFF",
@@ -400,13 +410,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/chat/typing/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendPresence/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -422,12 +432,12 @@
               "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
             },
             {
-              "name": "state",
-              "value": "on"
+              "name": "presence",
+              "value": "composing"
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "status-digitando-pos-openai-001",
       "name": "Status Digitando Pós-OpenAI",
@@ -441,13 +451,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -468,7 +478,7 @@
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "f1c51878-5560-4e64-bbfb-13bcaaddd059",
       "name": "WhatsApp Enviar Mariana",
@@ -482,13 +492,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -509,7 +519,7 @@
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "753cd52c-60ff-4159-9820-785f41db4950",
       "name": "Enviar Link Portabilidade",
@@ -529,7 +539,7 @@
         "responseData": "lastNode",
         "responseCode": 200,
         "responseBody": "{\"ok\": true}",
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "3f24d964-8568-478d-9fd1-d19663e6d78e",
       "name": "Webhook Resposta Cliente WhatsApp",
@@ -596,13 +606,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -623,7 +633,7 @@
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "ad41b00b-f8f0-4497-8798-d803eac7461e",
       "name": "Confirmar Áudio Recebido",
@@ -654,7 +664,7 @@
       "parameters": {
         "mode": "combine",
         "combinationMode": "pass-through",
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "c49327cf-97fe-4246-b522-6a8048b3d031",
       "name": "Merge Respostas",
@@ -719,7 +729,7 @@
       "parameters": {
         "respondWith": "json",
         "responseBody": "{\"ok\": true}",
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "8a691ee4-032d-4424-9f45-5480915a2d14",
       "name": "Responder Webhook Cliente",
@@ -858,13 +868,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -949,14 +959,15 @@
           "id": "ZRCcorwTkMjhn6EC",
           "name": "Google Sheets account"
         }
-      }
+      },
+      "disabled": true
     },
     {
       "parameters": {
         "sendTo": "={{$json.vendedor?.email ?? $env.VENDOR_DEFAULT_EMAIL}}",
         "subject": "🔥 {{$json.resumo_vendedor.classificacao}} - {{$json.resumo_vendedor.nome}} | Score: {{$json.resumo_vendedor.score}} | Vendedor: {{$json.vendedor.nome}}",
         "message": "<div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>\n <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0;'>\n <h1 style='color: white; margin: 0; text-align: center;'>🎯 LEAD QUALIFICADO</h1>\n <h2 style='color: white; margin: 10px 0 0 0; text-align: center;'>{{$json.resumo_vendedor.classificacao}} - Score: {{$json.resumo_vendedor.score}}/100</h2>\n </div>\n \n <div style='background: white; padding: 30px; border: 1px solid #e0e0e0; border-top: 0;'>\n <div style='background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;'>\n <h3 style='color: #333; margin-top: 0;'>👤 Dados do Cliente</h3>\n <p style='margin: 5px 0;'><strong>Nome:</strong> {{$json.resumo_vendedor.nome}}</p>\n <p style='margin: 5px 0;'><strong>Telefone:</strong> <a href='tel:{{$json.resumo_vendedor.telefone}}'>{{$json.resumo_vendedor.telefone}}</a></p>\n <p style='margin: 5px 0;'><strong>Email:</strong> <a href='mailto:{{$json.resumo_vendedor.email}}'>{{$json.resumo_vendedor.email}}</a></p>\n <p style='margin: 5px 0;'><strong>Localização:</strong> {{$json.resumo_vendedor.cidade_estado}}</p>\n </div>\n \n <div style='background: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px;'>\n <h3 style='color: #333; margin-top: 0;'>📊 Informações do Grupo</h3>\n <p style='margin: 5px 0;'><strong>Idade Titular:</strong> {{$json.resumo_vendedor.idade_titular}} anos</p>\n <p style='margin: 5px 0;'><strong>Total de Vidas:</strong> {{$json.resumo_vendedor.total_vidas}}</p>\n <p style='margin: 5px 0;'><strong>Dependentes:</strong> {{$json.resumo_vendedor.idades_dependentes}}</p>\n <p style='margin: 5px 0;'><strong>Tipo de Contratação:</strong> {{$json.resumo_vendedor.tipo_contratacao}}</p>\n </div>\n \n <div style='background: #d4edda; padding: 20px; border-radius: 8px; margin-bottom: 20px;'>\n <h3 style='color: #333; margin-top: 0;'>🏥 Preferências e Histórico</h3>\n <p style='margin: 5px 0;'><strong>Hospital Preferido:</strong> {{$json.resumo_vendedor.hospital_preferencia}}</p>\n <p style='margin: 5px 0;'><strong>Plano Atual:</strong> {{$json.resumo_vendedor.plano_atual}}</p>\n <p style='margin: 5px 0;'><strong>Preexistência:</strong> {{$json.resumo_vendedor.tem_preexistencia}}</p>\n <p style='margin: 5px 0;'><strong>Doença Grave:</strong> {{$json.resumo_vendedor.doenca_grave}}</p>\n </div>\n \n <div style='background: #cfe2ff; padding: 20px; border-radius: 8px; margin-bottom: 20px;'>\n <h3 style='color: #333; margin-top: 0;'>💼 Recomendações</h3>\n <p style='margin: 5px 0;'><strong>Plano Sugerido:</strong> <span style='background: #28a745; color: white; padding: 3px 10px; border-radius: 3px;'>{{$json.resumo_vendedor.plano_sugerido}}</span></p>\n <p style='margin: 5px 0;'><strong>Documentos Necessários:</strong></p>\n <p style='margin: 5px 0 5px 20px; font-size: 14px;'>{{$json.resumo_vendedor.documentos_necessarios}}</p>\n </div>\n \n <div style='background: #e2e3e5; padding: 20px; border-radius: 8px;'>\n <h3 style='color: #333; margin-top: 0;'>🎯 Vendedor Responsável</h3>\n <p style='margin: 5px 0;'><strong>Nome:</strong> {{$json.vendedor.nome}}</p>\n <p style='margin: 5px 0;'><strong>Email:</strong> <a href='mailto:{{$json.vendedor.email}}'>{{$json.vendedor.email}}</a></p>\n <p style='margin: 5px 0;'><strong>WhatsApp:</strong> <a href='https://wa.me/{{ '55' + String(($json.vendedor.whatsapp || '').replace(/\\D/g,'')) }}'>+55 {{ String(($json.vendedor.whatsapp || '').replace(/\\D/g,'')) }}</a></p>\n </div>\n \n <div style='text-align: center; margin-top: 30px;'>\n <a href='https://wa.me/{{ '55' + String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}' style='display: inline-block; background: #25D366; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;'>💬 Contatar via WhatsApp</a>\n </div>\n </div>\n \n <div style='background: #f8f9fa; padding: 15px; text-align: center; border-radius: 0 0 10px 10px;'>\n <p style='margin: 0; color: #666; font-size: 12px;'>Lead qualificado em {{$json.resumo_vendedor.timestamp_qualificacao}}</p>\n </div>\n</div>",
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "3a2b719b-6b15-4bbe-8a12-c89a011e75f1",
       "name": "Email Vendedor Rico Formatado",
@@ -977,13 +988,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -1004,7 +1015,7 @@
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "eabf424a-1deb-40e8-b927-561a292f1c7b",
       "name": "WhatsApp Vendedor",
@@ -1035,7 +1046,7 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"title\": \"{{$json.resumo_vendedor.nome}} - Bradesco {{$json.resumo_vendedor.plano_sugerido}} [{{$json.vendedor.nome}}]\",\n  \"value\": {{(Number($json.resumo_vendedor.total_vidas) || 1) * 350}},\n  \"contact\": {\n    \"name\": \"{{$json.resumo_vendedor.nome}}\",\n    \"email\": \"{{$json.resumo_vendedor.email}}\",\n    \"phone\": \"{{$json.resumo_vendedor.telefone}}\",\n    \"city\": \"{{$json.resumo_vendedor.cidade_estado}}\"\n  },\n  \"description\": \"{{$json.mensagem_vendedor_formatada}}\\n\\n🎯 Vendedor Responsável: {{$json.vendedor.nome}}\",\n  \"ranking\": {{$json.resumo_vendedor.score}},\n  \"dealStage\": 1\n}",
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "e9de8ac6-b0a5-4695-8418-4fcfe126ea32",
       "name": "Criar Deal Agendor",
@@ -1049,13 +1060,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -1076,7 +1087,7 @@
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "3a4aa8de-5f24-4046-a352-58217a8a6499",
       "name": "Mensagem Final Cliente",
@@ -1106,18 +1117,18 @@
             "Lead_ID": "={{$json.lead_id}}",
             "Nome Completo": "={{$json.nome}}",
             "Telefone com DDD": "={{$json.telefone_limpo}}",
-            "E-mail": "={{$json.email}}",
+            " E-mail": "={{$json.email}}",
             "Data de Nascimento": "={{$json.nascimento}}",
             "Estado": "={{$json.estado}}",
             "Cidade": "={{$json.cidade}}",
             "Número de Vidas": "={{$json.vidas}}",
-            "Mensagem": "={{$json.mensagem}}",
+            " Mensagem": "={{$json.mensagem}}",
             "Idade_Calculada": "={{$json.idade}}",
             "Status": "={{$json.status}}",
-            "Classificacao_Inicial": "={{$json.classificacao_inicial}}",
-            "Score_Inicial": "={{$json.score_inicial}}",
-            "Data_Hora": "={{$json.timestamp}}",
-            "Remarketing_Data": "={{$json.remarketing_data}}",
+            " Classificacao_Inicial": "={{$json.classificacao_inicial}}",
+            " Score_Inicial": "={{$json.score_inicial}}",
+            " Data_Hora": "={{$json.timestamp}}",
+            " Remarketing_Data": "={{$json.remarketing_data}}",
             "Ultima_Atividade": "={{$json.timestamp}}",
             "Tentativas_Remarketing": "0"
           },
@@ -1304,7 +1315,7 @@
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "schedule-diario-10h",
       "name": "Schedule Diário 10:00",
@@ -1314,6 +1325,26 @@
         912
       ],
       "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.remarketing_on}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-remarketing-on-001",
+      "name": "IF Remarketing ON",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        -7552,
+        912
+      ],
+      "typeVersion": 1
     },
     {
       "parameters": {
@@ -1353,7 +1384,7 @@
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "cea019f9-2c1f-4267-94ab-fca7475f0d17",
       "name": "Buscar Leads Pendentes",
@@ -1373,7 +1404,7 @@
     {
       "parameters": {
         "batchSize": 1,
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "2921eca3-5315-43c9-b57b-1950e54e642b",
       "name": "Loop Leads",
@@ -1387,13 +1418,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -1414,7 +1445,7 @@
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "826390bd-9ff7-478e-ad7e-938bb029e135",
       "name": "Mensagem Dia Seguinte",
@@ -1615,7 +1646,7 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": false
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "966eef85-aec5-4243-98a0-084d36d1c5c3",
       "name": "Atualizar Status Remarketing",
@@ -1685,7 +1716,7 @@
             "Data_Registro": "={{$now.toISO()}}"
           }
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "ea736e9e-dd23-43bd-98af-a808e268f967",
       "name": "📊 PLANILHA RODRIGO - Leads Qualificados",
@@ -1732,7 +1763,7 @@
             "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || ''}}"
           }
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "17d6aa79-2cf8-4f47-b455-80d05406376a",
       "name": "📊 PLANILHA FABIANA - Leads Qualificados",
@@ -1780,7 +1811,7 @@
             "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || ''}}"
           }
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "942ccbd1-787d-40ac-97e9-ccd3e2db0572",
       "name": "📊 PLANILHA JULIANA - Leads Qualificados",
@@ -1828,7 +1859,7 @@
             "Observações_Mariana": "={{ $json.resumo_vendedor?.observacoes_mariana || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '') + ($json.hospital_preferencia && $json.hospital_preferencia !== 'Não informado' ? ((($json.mensagem_mariana || $json.mensagem_mariana_loop) ? ' | ' : '') + 'Hosp.: ' + $json.hospital_preferencia) : '') + ($json.tem_preexistencia && $json.tem_preexistencia !== 'Não informado' ? ' | Pré-existência: ' + $json.tem_preexistencia : '') + ($json.doenca_grave && $json.doenca_grave !== 'Não informado' ? ' | Doença grave: ' + $json.doenca_grave : '') + ($json.eh_portabilidade === true ? ' | Portabilidade: Sim' : '') }}"
           }
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "41f7bd32-1628-4dc7-95dd-a48ee3638035",
       "name": "📊 PLANILHA MONIQUE - Leads Qualificados",
@@ -1876,7 +1907,7 @@
             "Observações_Mariana": "={{ $json.resumo_vendedor?.observacoes_mariana || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '') + ($json.hospital_preferencia && $json.hospital_preferencia !== 'Não informado' ? ((($json.mensagem_mariana || $json.mensagem_mariana_loop) ? ' | ' : '') + 'Hosp.: ' + $json.hospital_preferencia) : '') + ($json.tem_preexistencia && $json.tem_preexistencia !== 'Não informado' ? ' | Pré-existência: ' + $json.tem_preexistencia : '') + ($json.doenca_grave && $json.doenca_grave !== 'Não informado' ? ' | Doença grave: ' + $json.doenca_grave : '') + ($json.eh_portabilidade === true ? ' | Portabilidade: Sim' : '') }}"
           }
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "edc3acf5-551f-424a-b0ab-62f64addf4eb",
       "name": "📊 PLANILHA ISABELA - Leads Qualificados",
@@ -1907,7 +1938,7 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"title\": \"{{$json.resumo_vendedor.nome}} - Bradesco {{$json.resumo_vendedor.plano_sugerido}}\",\n  \"value\": {{(Number($json.resumo_vendedor.total_vidas) || 1) * 350}},\n  \"contact\": {\n    \"name\": \"{{$json.resumo_vendedor.nome}}\",\n    \"email\": \"{{$json.resumo_vendedor.email}}\",\n    \"phone\": \"{{$json.resumo_vendedor.telefone}}\",\n    \"city\": \"{{$json.resumo_vendedor.cidade_estado}}\"\n  },\n  \"description\": \"{{$json.mensagem_vendedor_formatada}}\",\n  \"ranking\": {{$json.resumo_vendedor.score}},\n  \"dealStage\": 1\n}",
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "5043514d-2075-42fb-93e6-5b1aea2556e1",
       "name": "🎯 AGENDOR RODRIGO - Criar Deal",
@@ -1938,7 +1969,7 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"title\": \"{{$json.resumo_vendedor.nome}} - Bradesco {{$json.resumo_vendedor.plano_sugerido}}\",\n  \"value\": {{(Number($json.resumo_vendedor.total_vidas) || 1) * 350}},\n  \"contact\": {\n    \"name\": \"{{$json.resumo_vendedor.nome}}\",\n    \"email\": \"{{$json.resumo_vendedor.email}}\",\n    \"phone\": \"{{$json.resumo_vendedor.telefone}}\",\n    \"city\": \"{{$json.resumo_vendedor.cidade_estado}}\"\n  },\n  \"description\": \"{{$json.mensagem_vendedor_formatada}}\",\n  \"ranking\": {{$json.resumo_vendedor.score}},\n  \"dealStage\": 1\n}",
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "af0d6ab5-79fc-4877-a0d5-6fc03bc30078",
       "name": "🎯 AGENDOR FABIANA - Criar Deal",
@@ -1969,7 +2000,7 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"title\": \"{{$json.resumo_vendedor.nome}} - Bradesco {{$json.resumo_vendedor.plano_sugerido}}\",\n  \"value\": {{(Number($json.resumo_vendedor.total_vidas) || 1) * 350}},\n  \"contact\": {\n    \"name\": \"{{$json.resumo_vendedor.nome}}\",\n    \"email\": \"{{$json.resumo_vendedor.email}}\",\n    \"phone\": \"{{$json.resumo_vendedor.telefone}}\",\n    \"city\": \"{{$json.resumo_vendedor.cidade_estado}}\"\n  },\n  \"description\": \"{{$json.mensagem_vendedor_formatada}}\",\n  \"ranking\": {{$json.resumo_vendedor.score}},\n  \"dealStage\": 1\n}",
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "376e0bee-c58c-47ff-993c-96bcd50eb93d",
       "name": "🎯 AGENDOR JULIANA - Criar Deal",
@@ -2000,7 +2031,7 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"title\": \"{{$json.resumo_vendedor.nome}} - Bradesco {{$json.resumo_vendedor.plano_sugerido}}\",\n  \"value\": {{(Number($json.resumo_vendedor.total_vidas) || 1) * 350}},\n  \"contact\": {\n    \"name\": \"{{$json.resumo_vendedor.nome}}\",\n    \"email\": \"{{$json.resumo_vendedor.email}}\",\n    \"phone\": \"{{$json.resumo_vendedor.telefone}}\",\n    \"city\": \"{{$json.resumo_vendedor.cidade_estado}}\"\n  },\n  \"description\": \"{{$json.mensagem_vendedor_formatada}}\",\n  \"ranking\": {{$json.resumo_vendedor.score}},\n  \"dealStage\": 1\n}",
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "4af10d52-e42d-4a84-b735-c4f8d3c63c11",
       "name": "🎯 AGENDOR MONIQUE - Criar Deal",
@@ -2031,7 +2062,7 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"title\": \"{{$json.resumo_vendedor.nome}} - Bradesco {{$json.resumo_vendedor.plano_sugerido}}\",\n  \"value\": {{(Number($json.resumo_vendedor.total_vidas) || 1) * 350}},\n  \"contact\": {\n    \"name\": \"{{$json.resumo_vendedor.nome}}\",\n    \"email\": \"{{$json.resumo_vendedor.email}}\",\n    \"phone\": \"{{$json.resumo_vendedor.telefone}}\",\n    \"city\": \"{{$json.resumo_vendedor.cidade_estado}}\"\n  },\n  \"description\": \"{{$json.mensagem_vendedor_formatada}}\",\n  \"ranking\": {{$json.resumo_vendedor.score}},\n  \"dealStage\": 1\n}",
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "5bb50040-d65a-40d3-9e52-a340058d32c7",
       "name": "🎯 AGENDOR ISABELA - Criar Deal",
@@ -2112,7 +2143,7 @@
             "Remarketing_Data": "Reengajamento_5min_agendado_{{$now.toISO()}}"
           }
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "78109ad1-2779-422c-846a-bb73f4173aff",
       "name": "Agendar Reengajamento 5min",
@@ -2253,19 +2284,19 @@
           ],
           "combinator": "and"
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       }
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -2276,7 +2307,7 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"number\": \"5511996163900\",\n  \"text\": \"📅 REMARKETING {{ $json['Lead_ID'] || 'sem_id' }} · {{ $json['Nome Completo'] || 'Cliente' }} · Tentativa: {{ ($json.Tentativas_Remarketing || 0) + 1 }} · {{ $now.toISO() }}\\n\\n📝 Observações: {{ $json.resumo_vendedor?.observacoes_mariana || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '') + ($json.hospital_preferencia && $json.hospital_preferencia !== 'Não informado' ? ((($json.mensagem_mariana || $json.mensagem_mariana_loop) ? ' | ' : '') + 'Hosp.: ' + $json.hospital_preferencia) : '') + ($json.tem_preexistencia && $json.tem_preexistencia !== 'Não informado' ? ' | Pré-existência: ' + $json.tem_preexistencia : '') + ($json.doenca_grave && $json.doenca_grave !== 'Não informado' ? ' | Doença grave: ' + $json.doenca_grave : '') + ($json.eh_portabilidade === true ? ' | Portabilidade: Sim' : '')) }}\"\n}",
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "copia-rodrigo-remarketing-001",
       "name": "👨‍💼 Cópia Rodrigo Remarketing",
@@ -2290,13 +2321,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://automacao-abmix-n8n.2ckrtx.easypanel.host/message/sendText/Bradesco",
+        "url": "https://automacao-abmix-evolution-api.2ckrtx.easypanel.host/message/sendText/Bradesco",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$credentials.evolutionApi.token}}"
+              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -2317,7 +2348,7 @@
             }
           ]
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "copia-supervisor-remarketing-001",
       "name": "👨‍💼 Cópia Supervisor Remarketing",
@@ -2362,7 +2393,7 @@
           ],
           "combinator": "and"
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "if-cache-vazio-agendor-001",
       "name": "❓ IF Cache Vazio",
@@ -2464,7 +2495,7 @@
           ],
           "combinator": "and"
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "if-criar-pessoa-agendor-001",
       "name": "❓ IF Criar Pessoa",
@@ -2572,7 +2603,7 @@
           ],
           "combinator": "and"
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "if-criar-deal-agendor-001",
       "name": "❓ IF Criar Deal",
@@ -2639,7 +2670,7 @@
           ],
           "combinator": "and"
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "if-atualizar-deal-agendor-001",
       "name": "❓ IF Atualizar Deal",
@@ -2816,7 +2847,7 @@
           ],
           "combinator": "and"
         },
-        "options": {}
+        "options": {"continueOnFail": true}
       },
       "id": "if-retry-agendor-001",
       "name": "🔁 IF Should Retry",
@@ -2872,6 +2903,17 @@
       ]
     },
     "Proteção Contra Pico": {
+      "main": [
+        [
+          {
+            "node": "CTRL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CTRL": {
       "main": [
         [
           {
@@ -3550,11 +3592,23 @@
       "main": [
         [
           {
-            "node": "Buscar Leads Pendentes",
+            "node": "IF Remarketing ON",
             "type": "main",
             "index": 0
           }
         ]
+      ]
+    },
+    "IF Remarketing ON": {
+      "main": [
+        [
+          {
+            "node": "Buscar Leads Pendentes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     },
     "Buscar Leads Pendentes": {
