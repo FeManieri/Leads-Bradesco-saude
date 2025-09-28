@@ -183,11 +183,11 @@
           "parameters": [
             {
               "name": "number",
-              "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
+              "value": "={{ '55' + String(($json[\"Telefone com DDD\"] || $json.telefone_limpo || $json.telefone || '').replace(/\\D/g,'')).replace(/^55/,'') }}"
             },
             {
               "name": "text",
-              "value": "={{$json.mensagem_mariana_loop}}"
+              "value": "={{ $json.mensagem_mariana || $json.mensagem_mariana_loop || 'Mensagem de teste' }}"
             }
           ]
         },
@@ -204,7 +204,7 @@
     },
     {
       "parameters": {
-        "jsCode": "try {\n  // 1) Entrada tolerante (string JSON ou objeto)\n  let dados = {};\n  try {\n    const raw = $input.all()[0].json?.body ?? $input.all()[0].json ?? {};\n    dados = (typeof raw === 'string') ? JSON.parse(raw) : (raw || {});\n  } catch (e) {\n    console.error('Entrada não era JSON válido; seguindo com objeto vazio:', e);\n    dados = {};\n  }\n\n  // 2) Helpers\n  const limparTelefone = (telefone) => {\n    if (!telefone) return '';\n    const limpo = String(telefone).replace(/\\D/g, '').slice(-11);\n    return (limpo.length >= 10 && limpo.length <= 11) ? limpo : '';\n  };\n\n  // aceita \"dd/MM/yyyy\" ou ISO \"yyyy-MM-dd\"\n  const calcularIdade = (dataNascimento) => {\n    if (!dataNascimento) return '';\n    let d;\n    if (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(String(dataNascimento))) {\n      const [dd, mm, yyyy] = String(dataNascimento).split('/').map(n => parseInt(n, 10));\n      d = new Date(yyyy, mm - 1, dd);\n    } else {\n      d = new Date(dataNascimento);\n    }\n    if (isNaN(d.getTime())) return '';\n    const hoje = new Date();\n    let idade = hoje.getFullYear() - d.getFullYear();\n    const m = hoje.getMonth() - d.getMonth();\n    if (m < 0 || (m === 0 && hoje.getDate() < d.getDate())) idade--;\n    return idade > 0 ? String(idade) : '';\n  };\n\n  const validarEmail = (email) => {\n    if (!email) return '';\n    const re = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    return re.test(String(email).trim()) ? String(email).trim() : '';\n  };\n\n  const toBucket = (raw) => {\n    if (raw >= 70) return { classificacao: 'Alta', score: 80 };\n    if (raw >= 50) return { classificacao: 'Média', score: 60 };\n    if (raw >= 30) return { classificacao: 'Baixa', score: 40 };\n    return { classificacao: 'Muito Baixa', score: 20 };\n  };\n\n  const calcularScore = (d) => {\n    let score = 0;\n\n    // Base (dados de qualidade)\n    if (d.nome && String(d.nome).trim().length > 2) score += 20;\n    if (d.email && validarEmail(d.email)) score += 20;\n    if ((d.telefone && limparTelefone(d.telefone)) || (d.telefone_limpo && limparTelefone(d.telefone_limpo))) score += 20;\n    if (d.estado && String(d.estado).trim().length > 1) score += 10;\n    if (d.cidade && String(d.cidade).trim().length > 1) score += 10;\n    const totalVidas = parseInt(d.total_vidas ?? d.vidas ?? 0, 10) || 0;\n    if (totalVidas > 0) score += 10;\n    if (d.mensagem && String(d.mensagem).trim().length > 10) score += 10;\n\n    // Penalidades e bônus de negócio\n    const idade = parseInt(d.idade_titular ?? d.idade ?? 0, 10) || 0;\n    if (idade >= 60 && idade <= 68) score -= 15;\n    else if (idade >= 69) score -= 35;\n\n    const preexist = String(d.tem_preexistencia || '').toLowerCase();\n    if (preexist.startsWith('sim')) score -= 20;\n\n    const grave = String(d.doenca_grave || '').toLowerCase();\n    if (grave.startsWith('sim')) score -= 35;\n\n    if (totalVidas > 0 && totalVidas < 3) score -= 15;\n\n    const tipo = String(d.tipo_contratacao || '').toLowerCase();\n    if ((tipo.includes('empres') || tipo.includes('mei')) && totalVidas > 0 && totalVidas < 3) score -= 10;\n\n    const cnpjMeses = parseInt(d.cnpj_meses_ativo ?? 0, 10) || 0;\n    if ((tipo.includes('empres') || tipo.includes('mei')) && cnpjMeses > 0 && cnpjMeses < 6) score -= 25;\n\n    const plano = String(d.plano_atual || '').trim();\n    const tempoPlanoMeses = parseInt(d.tempo_plano_atual_meses ?? 0, 10) || 0;\n    if (!plano || plano.toLowerCase() === 'não possui' || plano.toLowerCase() === 'nao possui') {\n      score += 10;\n    } else if (tempoPlanoMeses >= 24) {\n      score += 15;\n    }\n\n    const score_bruto = Math.max(0, Math.min(100, score));\n    const bucket = toBucket(score_bruto);\n    return { score_bruto, score: bucket.score, classificacao: bucket.classificacao };\n  };\n\n  // 3) Normalizações\n  const telefoneLimpo = limparTelefone(dados.telefone || dados.from);\n  const idadeCalculada = calcularIdade(dados.nascimento);\n  const emailValidado = validarEmail(dados.email);\n\n  const bucket = calcularScore(dados);\n\n  // 4) Saída padronizada (mantém TODOS os campos que o seu fluxo usa)\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: String(dados.nome || '').trim(),\n    email: emailValidado,\n    telefone: String(dados.telefone || ''),\n    telefone_limpo: telefoneLimpo,\n    nascimento: String(dados.nascimento || ''),\n    estado: String(dados.estado || '').trim(),\n    cidade: String(dados.cidade || '').trim(),\n    vidas: parseInt(dados.vidas, 10) || 1,\n    total_vidas: parseInt(dados.total_vidas ?? dados.vidas ?? 0, 10) || (parseInt(dados.vidas, 10) || 1),\n    mensagem: String(dados.mensagem || '').trim(),\n    timestamp: new Date().toISOString(),\n\n    // idade em dois campos porque o resto do fluxo usa ambos\n    idade: idadeCalculada,\n    idade_titular: idadeCalculada,\n\n    // novos campos suportados\n    cnpj_meses_ativo: dados.cnpj_meses_ativo ?? '',\n    tempo_plano_atual_meses: dados.tempo_plano_atual_meses ?? '',\n    tipo_contratacao: dados.tipo_contratacao ?? (dados.tipo || ''),\n    tem_preexistencia: dados.tem_preexistencia ?? '',\n    doenca_grave: dados.doenca_grave ?? '',\n    plano_atual: dados.plano_atual ?? '',\n\n    status: 'Novo - Aguardando IA',\n    classificacao: bucket.classificacao,\n    classificacao_inicial: bucket.classificacao,\n\n    score_bruto: bucket.score_bruto,\n    score: bucket.score,\n    score_inicial: bucket.score,\n\n    remarketing_data: '',\n    telefone_valido: Boolean(telefoneLimpo),\n    telefone_invalido: !telefoneLimpo,\n    dados_validos: Boolean(telefoneLimpo && String(dados.nome || '').trim().length > 2)\n  }];\n\n} catch (error) {\n  console.error('Erro ao processar dados iniciais:', error);\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: 'Erro no processamento',\n    email: '',\n    telefone: '',\n    telefone_limpo: '',\n    nascimento: '',\n    estado: '',\n    cidade: '',\n    vidas: 1,\n    mensagem: 'Erro ao processar dados iniciais',\n    timestamp: new Date().toISOString(),\n    idade: '',\n    idade_titular: '',\n    status: 'Erro - Dados Inválidos',\n    classificacao: 'Muito Baixa',\n    classificacao_inicial: 'Muito Baixa',\n    score: 0,\n    score_inicial: 0,\n    score_bruto: 0,\n    remarketing_data: '',\n    telefone_valido: false,\n    telefone_invalido: true,\n    dados_validos: false,\n    erro_processamento: error.message\n  }];\n}"
+        "jsCode": "try {\n  const it = $input.all();\n  if (!it.length) return [];\n  const src = it[0].json || {};\n  let base = src;\n  try {\n    const h = src.cabecalhos || src.cabeçalhos;\n    base = h ? JSON.parse(h) : (src.body ?? src);\n    if (typeof base === 'string') base = JSON.parse(base);\n  } catch {}\n  const d = base || {};\n\n  // payload mínimo: pelo menos um dos campos-chave\n  const ok = Boolean(\n    (d.telefone && /\\d/.test(String(d.telefone))) ||\n    d['Telefone com DDD'] || d.email || d.nome || d.cidade || d.estado\n  );\n  if (!ok) return [];\n\n  const cleanPhone = t => {\n    if (!t) return '';\n    const s = String(t).replace(/\\D/g,'').slice(-11);\n    return (s.length>=10 && s.length<=11) ? s : '';\n  };\n  const calcAge = v => {\n    if (!v) return '';\n    let dt;\n    if (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(String(v))) {\n      const [dd,mm,yy] = String(v).split('/').map(n=>parseInt(n,10));\n      dt = new Date(yy, mm-1, dd);\n    } else dt = new Date(v);\n    if (isNaN(dt.getTime())) return '';\n    const now=new Date();\n    let a=now.getFullYear()-dt.getFullYear();\n    const m=now.getMonth()-dt.getMonth();\n    if (m<0 || (m===0 && now.getDate()<dt.getDate())) a--;\n    return a>0 ? String(a) : '';\n  };\n  const validEmail = e => {\n    if (!e) return '';\n    const re=/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    return re.test(String(e).trim()) ? String(e).trim() : '';\n  };\n  const bucket = raw => {\n    if (raw>=70) return {c:'Alta', s:80};\n    if (raw>=50) return {c:'Média', s:60};\n    if (raw>=30) return {c:'Baixa', s:40};\n    return {c:'Muito Baixa', s:20};\n  };\n  const score = dd => {\n    let s=0;\n    if (dd.nome && String(dd.nome).trim().length>2) s+=20;\n    if (dd.email && validEmail(dd.email)) s+=20;\n    if ((dd.telefone && cleanPhone(dd.telefone)) || (dd.telefone_limpo && cleanPhone(dd.telefone_limpo))) s+=20;\n    if (dd.estado && String(dd.estado).trim().length>1) s+=10;\n    if (dd.cidade && String(dd.cidade).trim().length>1) s+=10;\n    const tv = parseInt(dd.total_vidas ?? dd.vidas ?? 0,10) || 0;\n    if (tv>0) s+=10;\n    if (dd.mensagem && String(dd.mensagem).trim().length>10) s+=10;\n    const idade = parseInt(dd.idade_titular ?? dd.idade ?? 0,10) || 0;\n    if (idade>=60 && idade<=68) s-=15; else if (idade>=69) s-=35;\n    const pre = String(dd.tem_preexistencia||'').toLowerCase();\n    if (pre.startsWith('sim')) s-=20;\n    const gr = String(dd.doenca_grave||'').toLowerCase();\n    if (gr.startsWith('sim')) s-=35;\n    if (tv>0 && tv<3) s-=15;\n    const tipo = String(dd.tipo_contratacao||'').toLowerCase();\n    if ((tipo.includes('empres') || tipo.includes('mei')) && tv>0 && tv<3) s-=10;\n    const cnpj = parseInt(dd.cnpj_meses_ativo||0,10)||0;\n    if ((tipo.includes('empres') || tipo.includes('mei')) && cnpj>0 && cnpj<6) s-=25;\n    const plano = String(dd.plano_atual||'').trim();\n    const tpm = parseInt(dd.tempo_plano_atual_meses||0,10)||0;\n    if (!plano || ['nao possui','não possui'].includes(plano.toLowerCase())) s+=10;\n    else if (tpm>=24) s+=15;\n    const sb = Math.max(0, Math.min(100, s));\n    const b = bucket(sb);\n    return {sb, s:b.s, c:b.c};\n  };\n\n  const telefone_limpo = cleanPhone(d.telefone || d.from || d['Telefone com DDD']);\n  const idade = calcAge(d.nascimento);\n  const email = validEmail(d.email);\n  const sc = score(d);\n\n  const out = {\n    ...d,\n    lead_id: d.lead_id || ('lead_'+Date.now()+'_'+Math.random().toString(36).slice(2,11)),\n    nome: String(d.nome||'').trim(),\n    email,\n    telefone: String(d.telefone || d['Telefone com DDD'] || ''),\n    telefone_limpo,\n    nascimento: String(d.nascimento||''),\n    estado: String(d.estado||'').trim(),\n    cidade: String(d.cidade||'').trim(),\n    vidas: parseInt(d.vidas,10) || 1,\n    total_vidas: parseInt(d.total_vidas ?? d.vidas ?? 0,10) || (parseInt(d.vidas,10)||1),\n    mensagem: String(d.mensagem||'').trim(),\n    timestamp: d.timestamp || new Date().toISOString(),\n    idade,\n    idade_titular: idade,\n    cnpj_meses_ativo: d.cnpj_meses_ativo||'',\n    tempo_plano_atual_meses: d.tempo_plano_atual_meses||'',\n    tipo_contratacao: d.tipo_contratacao || d.tipo || '',\n    tem_preexistencia: d.tem_preexistencia||'',\n    doenca_grave: d.doenca_grave||'',\n    plano_atual: d.plano_atual||'',\n    status: d.status || 'Novo - Aguardando IA',\n    classificacao: sc.c,\n    classificacao_inicial: d.classificacao_inicial ?? sc.c,\n    score_bruto: sc.sb,\n    score: sc.s,\n    score_inicial: d.score_inicial ?? sc.s,\n    remarketing_data: d.remarketing_data || '',\n    telefone_valido: Boolean(telefone_limpo),\n    telefone_invalido: !telefone_limpo,\n    dados_validos: Boolean(telefone_limpo && String(d.nome||'').trim().length>2)\n  };\n\n  return [{ json: out }];\n} catch (err) {\n  return [];\n}"
       },
       "id": "d3e3475e-dea1-4d93-9601-312d01a3ee45",
       "name": "Processar Dados Iniciais",
@@ -260,7 +260,7 @@
           "parameters": [
             {
               "name": "number",
-              "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
+              "value": "={{ '55' + String(($json[\"Telefone com DDD\"] || $json.telefone_limpo || $json.telefone || '').replace(/\\D/g,'')).replace(/^55/,'') }}"
             },
             {
               "name": "text",
@@ -301,7 +301,7 @@
           "parameters": [
             {
               "name": "number",
-              "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
+              "value": "={{ '55' + String(($json[\"Telefone com DDD\"] || $json.telefone_limpo || $json.telefone || '').replace(/\\D/g,'')).replace(/^55/,'') }}"
             },
             {
               "name": "presence",
@@ -335,7 +335,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const entrada = $input.all()[0].json;\n\n// Resposta bruta da OpenAI (compatível com variações do nó)\nconst respostaOpenAI = entrada.message?.content || entrada.choices?.[0]?.message?.content || '';\n\nfunction extrairInformacoesLoop(resposta, dadosAtuais) {\n  const r = {\n    mensagem_mariana_loop: 'Desculpe, não entendi. Pode repetir?',\n    qualificacao_completa: false,\n    proxima_acao: 'continuar',\n    dados_qualificacao: dadosAtuais.dados_qualificacao || {},\n  };\n\n  try {\n    // Pega o JSON da seção DADOS_EXTRAIDOS\n    const jsonMatch = resposta.match(/DADOS_EXTRAIDOS:\\s*(\\{[\\s\\S]*\\})/i);\n    if (jsonMatch && jsonMatch[1]) {\n      try {\n        const parsed = JSON.parse(jsonMatch[1]);\n        // mescla apenas valores não vazios\n        for (const k of Object.keys(parsed)) {\n          if (parsed[k] !== undefined && String(parsed[k]).trim() !== '') {\n            r.dados_qualificacao[k] = parsed[k];\n          }\n        }\n      } catch (e) {\n        // ignora parse error\n      }\n    }\n\n    // Pega a MENSAGEM (sem o JSON)\n    const msgMatch = resposta.match(/MENSAGEM:\\s*([\\s\\S]*?)(?=DADOS_EXTRAIDOS:|$)/i);\n    if (msgMatch && msgMatch[1]) {\n      r.mensagem_mariana_loop = msgMatch[1].trim();\n    } else {\n      r.mensagem_mariana_loop = resposta.replace(/\\{[\\s\\S]*\\}/, '').trim();\n    }\n\n    // Decide se já pode finalizar\n    const dq = r.dados_qualificacao;\n    const obrig = ['idade_titular', 'total_vidas', 'tipo_contratacao'];\n    const ok = obrig.filter(c => dq[c] && String(dq[c]).trim() !== '');\n    if (ok.length >= 3 || dq.qualificacao_completa === true) {\n      r.qualificacao_completa = true;\n      r.proxima_acao = 'finalizar';\n    }\n  } catch (_) {}\n\n  return r;\n}\n\nconst info = extrairInformacoesLoop(respostaOpenAI, entrada);\n\nconst saida = {\n  ...entrada,\n  resposta_openai_loop: respostaOpenAI,\n  mensagem_mariana_loop: info.mensagem_mariana_loop,\n  dados_completos: info.qualificacao_completa,\n  qualificacao_completa: info.qualificacao_completa,\n  total_interacoes: (entrada.total_interacoes || 0) + 1,\n  dados_qualificacao: info.dados_qualificacao,\n  proxima_acao: info.proxima_acao,\n  timestamp_loop: new Date().toISOString()\n};\n\nreturn [saida];"
+        "jsCode": "const entrada = ($input.all()[0]?.json) ?? {};\nconst resposta = entrada.message?.content ?? entrada.choices?.[0]?.message?.content ?? entrada.content ?? entrada.text ?? '';\n\nfunction extrair(res){\n  const r = {\n    mensagem_mariana_loop: 'Desculpe, não entendi. Pode repetir?',\n    qualificacao_completa: false,\n    proxima_acao: 'continuar',\n    dados_qualificacao: entrada.dados_qualificacao || {}\n  };\n  try{\n    const mJSON = res.match(/DADOS_EXTRAIDOS:\\s*(\\{[\\s\\S]*\\})/i);\n    if (mJSON?.[1]) { try {\n      const p = JSON.parse(mJSON[1]);\n      for (const k of Object.keys(p)) if (p[k] !== undefined && String(p[k]).trim()!=='') r.dados_qualificacao[k]=p[k];\n    } catch{} }\n    const mMSG = res.match(/MENSAGEM:\\s*([\\s\\S]*?)(?=DADOS_EXTRAIDOS:|$)/i);\n    r.mensagem_mariana_loop = mMSG?.[1]?.trim() || res.replace(/\\{[\\s\\S]*\\}/,'').trim();\n    const dq=r.dados_qualificacao, obrig=['idade_titular','total_vidas','tipo_contratacao'];\n    const ok=obrig.filter(c=>dq[c] && String(dq[c]).trim()!=='');\n    if (ok.length>=3 || dq.qualificacao_completa===true) { r.qualificacao_completa=true; r.proxima_acao='finalizar'; }\n  }catch{}\n  return r;\n}\n\nconst info = extrair(resposta);\nconst saida = {\n  ...entrada,\n  resposta_openai_loop: resposta,\n  mensagem_mariana_loop: info.mensagem_mariana_loop,\n  dados_completos: info.qualificacao_completa,\n  qualificacao_completa: info.qualificacao_completa,\n  total_interacoes: (entrada.total_interacoes||0)+1,\n  dados_qualificacao: info.dados_qualificacao,\n  proxima_acao: info.proxima_acao,\n  timestamp_loop: new Date().toISOString()\n};\nreturn [{ json: saida }];"
       },
       "id": "6e9b069d-33fb-47f0-9a28-18e3b377f171",
       "name": "Processar Resposta OpenAI",
@@ -388,7 +388,7 @@
           "parameters": [
             {
               "name": "number",
-              "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
+              "value": "={{ '55' + String(($json[\"Telefone com DDD\"] || $json.telefone_limpo || $json.telefone || '').replace(/\\D/g,'')).replace(/^55/,'') }}"
             },
             {
               "name": "presence",
@@ -429,7 +429,7 @@
           "parameters": [
             {
               "name": "number",
-              "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
+              "value": "={{ '55' + String(($json[\"Telefone com DDD\"] || $json.telefone_limpo || $json.telefone || '').replace(/\\D/g,'')).replace(/^55/,'') }}"
             },
             {
               "name": "presence",
@@ -470,7 +470,7 @@
           "parameters": [
             {
               "name": "number",
-              "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
+              "value": "={{ '55' + String(($json[\"Telefone com DDD\"] || $json.telefone_limpo || $json.telefone || '').replace(/\\D/g,'')).replace(/^55/,'') }}"
             },
             {
               "name": "text",
@@ -511,7 +511,7 @@
           "parameters": [
             {
               "name": "number",
-              "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
+              "value": "={{ '55' + String(($json[\"Telefone com DDD\"] || $json.telefone_limpo || $json.telefone || '').replace(/\\D/g,'')).replace(/^55/,'') }}"
             },
             {
               "name": "text",
@@ -626,7 +626,7 @@
           "parameters": [
             {
               "name": "number",
-              "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
+              "value": "={{ '55' + String(($json[\"Telefone com DDD\"] || $json.telefone_limpo || $json.telefone || '').replace(/\\D/g,'')).replace(/^55/,'') }}"
             },
             {
               "name": "text",
@@ -926,7 +926,7 @@
             "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || $json.Nome || ''}}",
             "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || $json.telefone_limpo || $json.Telefone || ''}}",
             "Email": "={{$json.resumo_vendedor?.email || $json.email || $json.Email || ''}}",
-            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || $json.Cidade_Estado || ''}}",
+            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade && $json.estado ? $json.cidade + '/' + $json.estado : ($json.cidade || $json.estado || 'Não informado'))}}",
             "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || $json.Idade_Titular || ''}}",
             "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || $json.Total_Vidas || 1}}",
             "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || $json.Idades_Dependentes || 'Não informado'}}",
@@ -934,7 +934,7 @@
             "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || $json.Hospital_Preferencia || 'Não informado'}}",
             "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || $json.Plano_Atual || 'Não possui'}}",
             "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || $json.Preexistencia || 'Não informado'}}",
-            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || $json.Doenca_grave || 'Não informado'}}",
+            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || 'Não informado'}}",
             "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || $json.Classificacao || 'Média'}}",
             "Score": "={{$json.resumo_vendedor?.score || $json.score || $json.Score || 50}}",
             "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || $json.Plano_Sugerido || 'Bradesco Nacional'}}",
@@ -942,7 +942,8 @@
             "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || $json.Data_Qualificacao || $now.toISO()}}",
             "Status": "={{$json.status || $json.Status || 'Qualificado - Aguardando Vendedor'}}",
             "Vendedor_Nome": "={{$json.vendedor?.nome || $json.vendedor_nome || $json.Vendedor_Nome || 'Não atribuído'}}",
-            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}"
+            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}",
+            "Payload_JSON": "={{$json | json}}"
           }
         },
         "options": {
@@ -1081,7 +1082,7 @@
           "parameters": [
             {
               "name": "number",
-              "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
+              "value": "={{ '55' + String(($json[\"Telefone com DDD\"] || $json.telefone_limpo || $json.telefone || '').replace(/\\D/g,'')).replace(/^55/,'') }}"
             },
             {
               "name": "text",
@@ -1443,7 +1444,7 @@
           "parameters": [
             {
               "name": "number",
-              "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
+              "value": "={{ '55' + String(($json[\"Telefone com DDD\"] || $json.telefone_limpo || $json.telefone || '').replace(/\\D/g,'')).replace(/^55/,'') }}"
             },
             {
               "name": "text",
@@ -1700,7 +1701,7 @@
             "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || $json.Nome || ''}}",
             "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || $json.telefone_limpo || $json.Telefone || ''}}",
             "Email": "={{$json.resumo_vendedor?.email || $json.email || $json.Email || ''}}",
-            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || $json.Cidade_Estado || ''}}",
+            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade && $json.estado ? $json.cidade + '/' + $json.estado : ($json.cidade || $json.estado || 'Não informado'))}}",
             "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || $json.Idade_Titular || ''}}",
             "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || $json.Total_Vidas || 1}}",
             "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || $json.Idades_Dependentes || 'Não informado'}}",
@@ -1708,15 +1709,16 @@
             "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || $json.Hospital_Preferencia || 'Não informado'}}",
             "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || $json.Plano_Atual || 'Não possui'}}",
             "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || $json.Preexistencia || 'Não informado'}}",
-            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || $json.Doenca_grave || 'Não informado'}}",
+            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || 'Não informado'}}",
             "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || $json.Classificacao || 'Média'}}",
             "Score": "={{$json.resumo_vendedor?.score || $json.score || $json.Score || 50}}",
             "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || $json.Plano_Sugerido || 'Bradesco Nacional'}}",
             "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || $json.Documentos || 'RG, CPF, Comprovante de Residência'}}",
             "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || $json.Data_Qualificacao || $now.toISO()}}",
             "Status": "={{$json.status || $json.Status || 'Qualificado - Aguardando Vendedor'}}",
-            "Vendedor_Nome": "={{$json.vendedor?.nome || $json.vendedor_nome || $json.Vendedor_Nome || 'Rodrigo'}}",
-            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}"
+            "Vendedor_Nome": "={{$json.resumo_vendedor?.vendedor_nome || $json.vendedor_nome || $json.vendedor?.nome || 'Rodrigo'}}",
+            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}",
+            "Payload_JSON": "={{$json | json}}"
           }
         },
         "options": {"continueOnFail": true}
@@ -1748,7 +1750,7 @@
             "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || $json.Nome || ''}}",
             "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || $json.telefone_limpo || $json.Telefone || ''}}",
             "Email": "={{$json.resumo_vendedor?.email || $json.email || $json.Email || ''}}",
-            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || $json.Cidade_Estado || ''}}",
+            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade && $json.estado ? $json.cidade + '/' + $json.estado : ($json.cidade || $json.estado || 'Não informado'))}}",
             "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || $json.Idade_Titular || ''}}",
             "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || $json.Total_Vidas || 1}}",
             "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || $json.Idades_Dependentes || 'Não informado'}}",
@@ -1756,15 +1758,16 @@
             "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || $json.Hospital_Preferencia || 'Não informado'}}",
             "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || $json.Plano_Atual || 'Não possui'}}",
             "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || $json.Preexistencia || 'Não informado'}}",
-            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || $json.Doenca_grave || 'Não informado'}}",
+            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || 'Não informado'}}",
             "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || $json.Classificacao || 'Média'}}",
             "Score": "={{$json.resumo_vendedor?.score || $json.score || $json.Score || 50}}",
             "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || $json.Plano_Sugerido || 'Bradesco Nacional'}}",
             "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || $json.Documentos || 'RG, CPF, Comprovante de Residência'}}",
             "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || $json.Data_Qualificacao || $now.toISO()}}",
             "Status": "={{$json.status || $json.Status || 'Qualificado - Aguardando Vendedor'}}",
-            "Vendedor_Nome": "={{$json.vendedor?.nome || $json.vendedor_nome || $json.Vendedor_Nome || 'Fabiana'}}",
-            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}"
+            "Vendedor_Nome": "={{$json.resumo_vendedor?.vendedor_nome || $json.vendedor_nome || $json.vendedor?.nome || 'Fabiana'}}",
+            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}",
+            "Payload_JSON": "={{$json | json}}"
           }
         },
         "options": {"continueOnFail": true}
@@ -1796,7 +1799,7 @@
             "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || $json.Nome || ''}}",
             "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || $json.telefone_limpo || $json.Telefone || ''}}",
             "Email": "={{$json.resumo_vendedor?.email || $json.email || $json.Email || ''}}",
-            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || $json.Cidade_Estado || ''}}",
+            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade && $json.estado ? $json.cidade + '/' + $json.estado : ($json.cidade || $json.estado || 'Não informado'))}}",
             "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || $json.Idade_Titular || ''}}",
             "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || $json.Total_Vidas || 1}}",
             "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || $json.Idades_Dependentes || 'Não informado'}}",
@@ -1804,15 +1807,16 @@
             "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || $json.Hospital_Preferencia || 'Não informado'}}",
             "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || $json.Plano_Atual || 'Não possui'}}",
             "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || $json.Preexistencia || 'Não informado'}}",
-            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || $json.Doenca_grave || 'Não informado'}}",
+            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || 'Não informado'}}",
             "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || $json.Classificacao || 'Média'}}",
             "Score": "={{$json.resumo_vendedor?.score || $json.score || $json.Score || 50}}",
             "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || $json.Plano_Sugerido || 'Bradesco Nacional'}}",
             "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || $json.Documentos || 'RG, CPF, Comprovante de Residência'}}",
             "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || $json.Data_Qualificacao || $now.toISO()}}",
             "Status": "={{$json.status || $json.Status || 'Qualificado - Aguardando Vendedor'}}",
-            "Vendedor_Nome": "={{$json.vendedor?.nome || $json.vendedor_nome || $json.Vendedor_Nome || 'Juliana'}}",
-            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}"
+            "Vendedor_Nome": "={{$json.resumo_vendedor?.vendedor_nome || $json.vendedor_nome || $json.vendedor?.nome || 'Juliana'}}",
+            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}",
+            "Payload_JSON": "={{$json | json}}"
           }
         },
         "options": {"continueOnFail": true}
@@ -1844,7 +1848,7 @@
             "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || $json.Nome || ''}}",
             "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || $json.telefone_limpo || $json.Telefone || ''}}",
             "Email": "={{$json.resumo_vendedor?.email || $json.email || $json.Email || ''}}",
-            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || $json.Cidade_Estado || ''}}",
+            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade && $json.estado ? $json.cidade + '/' + $json.estado : ($json.cidade || $json.estado || 'Não informado'))}}",
             "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || $json.Idade_Titular || ''}}",
             "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || $json.Total_Vidas || 1}}",
             "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || $json.Idades_Dependentes || 'Não informado'}}",
@@ -1852,15 +1856,16 @@
             "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || $json.Hospital_Preferencia || 'Não informado'}}",
             "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || $json.Plano_Atual || 'Não possui'}}",
             "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || $json.Preexistencia || 'Não informado'}}",
-            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || $json.Doenca_grave || 'Não informado'}}",
+            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || 'Não informado'}}",
             "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || $json.Classificacao || 'Média'}}",
             "Score": "={{$json.resumo_vendedor?.score || $json.score || $json.Score || 50}}",
             "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || $json.Plano_Sugerido || 'Bradesco Nacional'}}",
             "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || $json.Documentos || 'RG, CPF, Comprovante de Residência'}}",
             "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || $json.Data_Qualificacao || $now.toISO()}}",
             "Status": "={{$json.status || $json.Status || 'Qualificado - Aguardando Vendedor'}}",
-            "Vendedor_Nome": "={{$json.vendedor?.nome || $json.vendedor_nome || $json.Vendedor_Nome || 'Monique'}}",
-            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}"
+            "Vendedor_Nome": "={{$json.resumo_vendedor?.vendedor_nome || $json.vendedor_nome || $json.vendedor?.nome || 'Monique'}}",
+            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}",
+            "Payload_JSON": "={{$json | json}}"
           }
         },
         "options": {"continueOnFail": true}
@@ -1892,7 +1897,7 @@
             "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || $json.Nome || ''}}",
             "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || $json.telefone_limpo || $json.Telefone || ''}}",
             "Email": "={{$json.resumo_vendedor?.email || $json.email || $json.Email || ''}}",
-            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || $json.Cidade_Estado || ''}}",
+            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade && $json.estado ? $json.cidade + '/' + $json.estado : ($json.cidade || $json.estado || 'Não informado'))}}",
             "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || $json.Idade_Titular || ''}}",
             "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || $json.Total_Vidas || 1}}",
             "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || $json.Idades_Dependentes || 'Não informado'}}",
@@ -1900,15 +1905,16 @@
             "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || $json.Hospital_Preferencia || 'Não informado'}}",
             "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || $json.Plano_Atual || 'Não possui'}}",
             "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || $json.Preexistencia || 'Não informado'}}",
-            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || $json.Doenca_grave || 'Não informado'}}",
+            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || 'Não informado'}}",
             "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || $json.Classificacao || 'Média'}}",
             "Score": "={{$json.resumo_vendedor?.score || $json.score || $json.Score || 50}}",
             "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || $json.Plano_Sugerido || 'Bradesco Nacional'}}",
             "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || $json.Documentos || 'RG, CPF, Comprovante de Residência'}}",
             "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || $json.Data_Qualificacao || $now.toISO()}}",
             "Status": "={{$json.status || $json.Status || 'Qualificado - Aguardando Vendedor'}}",
-            "Vendedor_Nome": "={{$json.vendedor?.nome || $json.vendedor_nome || $json.Vendedor_Nome || 'Isabela'}}",
-            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}"
+            "Vendedor_Nome": "={{$json.resumo_vendedor?.vendedor_nome || $json.vendedor_nome || $json.vendedor?.nome || 'Isabela'}}",
+            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}",
+            "Payload_JSON": "={{$json | json}}"
           }
         },
         "options": {"continueOnFail": true}
@@ -2343,7 +2349,7 @@
           "parameters": [
             {
               "name": "number",
-              "value": "=55{{ String(($json['Telefone com DDD'] || $json.telefone_limpo || '').replace(/\\D/g,'')) }}"
+              "value": "={{ '55' + String(($json[\"Telefone com DDD\"] || $json.telefone_limpo || $json.telefone || '').replace(/\\D/g,'')).replace(/^55/,'') }}"
             },
             {
               "name": "text",
