@@ -169,8 +169,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -204,7 +204,7 @@
     },
     {
       "parameters": {
-        "jsCode": "try {\n  // 1) Entrada tolerante (cabeçalhos -> body -> json)\n  let dados = {};\n  try {\n    let raw = $input.all()[0].json || {};\n    const headersJson = raw?.cabeçalhos;\n    const base = headersJson ? JSON.parse(headersJson) : (raw.body ?? raw);\n    dados = (typeof base === 'string') ? JSON.parse(base) : (base || {});\n  } catch (e) {\n    console.error('Entrada não era JSON válido; seguindo com objeto vazio:', e);\n    dados = {};\n  }\n\n  // 2) Helpers\n  const limparTelefone = (telefone) => {\n    if (!telefone) return '';\n    const limpo = String(telefone).replace(/\\D/g, '').slice(-11);\n    return (limpo.length >= 10 && limpo.length <= 11) ? limpo : '';\n  };\n\n  // aceita \"dd/MM/yyyy\" ou ISO \"yyyy-MM-dd\"\n  const calcularIdade = (dataNascimento) => {\n    if (!dataNascimento) return '';\n    let d;\n    if (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(String(dataNascimento))) {\n      const [dd, mm, yyyy] = String(dataNascimento).split('/').map(n => parseInt(n, 10));\n      d = new Date(yyyy, mm - 1, dd);\n    } else {\n      d = new Date(dataNascimento);\n    }\n    if (isNaN(d.getTime())) return '';\n    const hoje = new Date();\n    let idade = hoje.getFullYear() - d.getFullYear();\n    const m = hoje.getMonth() - d.getMonth();\n    if (m < 0 || (m === 0 && hoje.getDate() < d.getDate())) idade--;\n    return idade > 0 ? String(idade) : '';\n  };\n\n  const validarEmail = (email) => {\n    if (!email) return '';\n    const re = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    return re.test(String(email).trim()) ? String(email).trim() : '';\n  };\n\n  const toBucket = (raw) => {\n    if (raw >= 70) return { classificacao: 'Alta', score: 80 };\n    if (raw >= 50) return { classificacao: 'Média', score: 60 };\n    if (raw >= 30) return { classificacao: 'Baixa', score: 40 };\n    return { classificacao: 'Muito Baixa', score: 20 };\n  };\n\n  const calcularScore = (d) => {\n    let score = 0;\n\n    // Base (dados de qualidade)\n    if (d.nome && String(d.nome).trim().length > 2) score += 20;\n    if (d.email && validarEmail(d.email)) score += 20;\n    if ((d.telefone && limparTelefone(d.telefone)) || (d.telefone_limpo && limparTelefone(d.telefone_limpo))) score += 20;\n    if (d.estado && String(d.estado).trim().length > 1) score += 10;\n    if (d.cidade && String(d.cidade).trim().length > 1) score += 10;\n    const totalVidas = parseInt(d.total_vidas ?? d.vidas ?? 0, 10) || 0;\n    if (totalVidas > 0) score += 10;\n    if (d.mensagem && String(d.mensagem).trim().length > 10) score += 10;\n\n    // Penalidades e bônus de negócio\n    const idade = parseInt(d.idade_titular ?? d.idade ?? 0, 10) || 0;\n    if (idade >= 60 && idade <= 68) score -= 15;\n    else if (idade >= 69) score -= 35;\n\n    const preexist = String(d.tem_preexistencia || '').toLowerCase();\n    if (preexist.startsWith('sim')) score -= 20;\n\n    const grave = String(d.doenca_grave || '').toLowerCase();\n    if (grave.startsWith('sim')) score -= 35;\n\n    if (totalVidas > 0 && totalVidas < 3) score -= 15;\n\n    const tipo = String(d.tipo_contratacao || '').toLowerCase();\n    if ((tipo.includes('empres') || tipo.includes('mei')) && totalVidas > 0 && totalVidas < 3) score -= 10;\n\n    const cnpjMeses = parseInt(d.cnpj_meses_ativo ?? 0, 10) || 0;\n    if ((tipo.includes('empres') || tipo.includes('mei')) && cnpjMeses > 0 && cnpjMeses < 6) score -= 25;\n\n    const plano = String(d.plano_atual || '').trim();\n    const tempoPlanoMeses = parseInt(d.tempo_plano_atual_meses ?? 0, 10) || 0;\n    if (!plano || plano.toLowerCase() === 'não possui' || plano.toLowerCase() === 'nao possui') {\n      score += 10;\n    } else if (tempoPlanoMeses >= 24) {\n      score += 15;\n    }\n\n    const score_bruto = Math.max(0, Math.min(100, score));\n    const bucket = toBucket(score_bruto);\n    return { score_bruto, score: bucket.score, classificacao: bucket.classificacao };\n  };\n\n  // 3) Normalizações\n  const telefoneLimpo = limparTelefone(dados.telefone || dados.from);\n  const idadeCalculada = calcularIdade(dados.nascimento);\n  const emailValidado = validarEmail(dados.email);\n\n  const bucket = calcularScore(dados);\n\n  // 4) Saída padronizada (mantém TODOS os campos que o seu fluxo usa)\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: String(dados.nome || '').trim(),\n    email: emailValidado,\n    telefone: String(dados.telefone || ''),\n    telefone_limpo: telefoneLimpo,\n    nascimento: String(dados.nascimento || ''),\n    estado: String(dados.estado || '').trim(),\n    cidade: String(dados.cidade || '').trim(),\n    vidas: parseInt(dados.vidas, 10) || 1,\n    total_vidas: parseInt(dados.total_vidas ?? dados.vidas ?? 0, 10) || (parseInt(dados.vidas, 10) || 1),\n    mensagem: String(dados.mensagem || '').trim(),\n    timestamp: new Date().toISOString(),\n\n    // idade em dois campos porque o resto do fluxo usa ambos\n    idade: idadeCalculada,\n    idade_titular: idadeCalculada,\n\n    // novos campos suportados\n    cnpj_meses_ativo: dados.cnpj_meses_ativo ?? '',\n    tempo_plano_atual_meses: dados.tempo_plano_atual_meses ?? '',\n    tipo_contratacao: dados.tipo_contratacao ?? (dados.tipo || ''),\n    tem_preexistencia: dados.tem_preexistencia ?? '',\n    doenca_grave: dados.doenca_grave ?? '',\n    plano_atual: dados.plano_atual ?? '',\n\n    status: 'Novo - Aguardando IA',\n    classificacao: bucket.classificacao,\n    classificacao_inicial: bucket.classificacao,\n\n    score_bruto: bucket.score_bruto,\n    score: bucket.score,\n    score_inicial: bucket.score,\n\n    remarketing_data: '',\n    telefone_valido: Boolean(telefoneLimpo),\n    telefone_invalido: !telefoneLimpo,\n    dados_validos: Boolean(telefoneLimpo && String(dados.nome || '').trim().length > 2)\n  }];\n\n} catch (error) {\n  console.error('Erro ao processar dados iniciais:', error);\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: 'Erro no processamento',\n    email: '',\n    telefone: '',\n    telefone_limpo: '',\n    nascimento: '',\n    estado: '',\n    cidade: '',\n    vidas: 1,\n    mensagem: 'Erro ao processar dados iniciais',\n    timestamp: new Date().toISOString(),\n    idade: '',\n    idade_titular: '',\n    status: 'Erro - Dados Inválidos',\n    classificacao: 'Muito Baixa',\n    classificacao_inicial: 'Muito Baixa',\n    score: 0,\n    score_inicial: 0,\n    score_bruto: 0,\n    remarketing_data: '',\n    telefone_valido: false,\n    telefone_invalido: true,\n    dados_validos: false,\n    erro_processamento: error.message\n  }];\n}"
+        "jsCode": "try {\n  // 1) Entrada tolerante (string JSON ou objeto)\n  let dados = {};\n  try {\n    const raw = $input.all()[0].json?.body ?? $input.all()[0].json ?? {};\n    dados = (typeof raw === 'string') ? JSON.parse(raw) : (raw || {});\n  } catch (e) {\n    console.error('Entrada não era JSON válido; seguindo com objeto vazio:', e);\n    dados = {};\n  }\n\n  // 2) Helpers\n  const limparTelefone = (telefone) => {\n    if (!telefone) return '';\n    const limpo = String(telefone).replace(/\\D/g, '').slice(-11);\n    return (limpo.length >= 10 && limpo.length <= 11) ? limpo : '';\n  };\n\n  // aceita \"dd/MM/yyyy\" ou ISO \"yyyy-MM-dd\"\n  const calcularIdade = (dataNascimento) => {\n    if (!dataNascimento) return '';\n    let d;\n    if (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(String(dataNascimento))) {\n      const [dd, mm, yyyy] = String(dataNascimento).split('/').map(n => parseInt(n, 10));\n      d = new Date(yyyy, mm - 1, dd);\n    } else {\n      d = new Date(dataNascimento);\n    }\n    if (isNaN(d.getTime())) return '';\n    const hoje = new Date();\n    let idade = hoje.getFullYear() - d.getFullYear();\n    const m = hoje.getMonth() - d.getMonth();\n    if (m < 0 || (m === 0 && hoje.getDate() < d.getDate())) idade--;\n    return idade > 0 ? String(idade) : '';\n  };\n\n  const validarEmail = (email) => {\n    if (!email) return '';\n    const re = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n    return re.test(String(email).trim()) ? String(email).trim() : '';\n  };\n\n  const toBucket = (raw) => {\n    if (raw >= 70) return { classificacao: 'Alta', score: 80 };\n    if (raw >= 50) return { classificacao: 'Média', score: 60 };\n    if (raw >= 30) return { classificacao: 'Baixa', score: 40 };\n    return { classificacao: 'Muito Baixa', score: 20 };\n  };\n\n  const calcularScore = (d) => {\n    let score = 0;\n\n    // Base (dados de qualidade)\n    if (d.nome && String(d.nome).trim().length > 2) score += 20;\n    if (d.email && validarEmail(d.email)) score += 20;\n    if ((d.telefone && limparTelefone(d.telefone)) || (d.telefone_limpo && limparTelefone(d.telefone_limpo))) score += 20;\n    if (d.estado && String(d.estado).trim().length > 1) score += 10;\n    if (d.cidade && String(d.cidade).trim().length > 1) score += 10;\n    const totalVidas = parseInt(d.total_vidas ?? d.vidas ?? 0, 10) || 0;\n    if (totalVidas > 0) score += 10;\n    if (d.mensagem && String(d.mensagem).trim().length > 10) score += 10;\n\n    // Penalidades e bônus de negócio\n    const idade = parseInt(d.idade_titular ?? d.idade ?? 0, 10) || 0;\n    if (idade >= 60 && idade <= 68) score -= 15;\n    else if (idade >= 69) score -= 35;\n\n    const preexist = String(d.tem_preexistencia || '').toLowerCase();\n    if (preexist.startsWith('sim')) score -= 20;\n\n    const grave = String(d.doenca_grave || '').toLowerCase();\n    if (grave.startsWith('sim')) score -= 35;\n\n    if (totalVidas > 0 && totalVidas < 3) score -= 15;\n\n    const tipo = String(d.tipo_contratacao || '').toLowerCase();\n    if ((tipo.includes('empres') || tipo.includes('mei')) && totalVidas > 0 && totalVidas < 3) score -= 10;\n\n    const cnpjMeses = parseInt(d.cnpj_meses_ativo ?? 0, 10) || 0;\n    if ((tipo.includes('empres') || tipo.includes('mei')) && cnpjMeses > 0 && cnpjMeses < 6) score -= 25;\n\n    const plano = String(d.plano_atual || '').trim();\n    const tempoPlanoMeses = parseInt(d.tempo_plano_atual_meses ?? 0, 10) || 0;\n    if (!plano || plano.toLowerCase() === 'não possui' || plano.toLowerCase() === 'nao possui') {\n      score += 10;\n    } else if (tempoPlanoMeses >= 24) {\n      score += 15;\n    }\n\n    const score_bruto = Math.max(0, Math.min(100, score));\n    const bucket = toBucket(score_bruto);\n    return { score_bruto, score: bucket.score, classificacao: bucket.classificacao };\n  };\n\n  // 3) Normalizações\n  const telefoneLimpo = limparTelefone(dados.telefone || dados.from);\n  const idadeCalculada = calcularIdade(dados.nascimento);\n  const emailValidado = validarEmail(dados.email);\n\n  const bucket = calcularScore(dados);\n\n  // 4) Saída padronizada (mantém TODOS os campos que o seu fluxo usa)\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: String(dados.nome || '').trim(),\n    email: emailValidado,\n    telefone: String(dados.telefone || ''),\n    telefone_limpo: telefoneLimpo,\n    nascimento: String(dados.nascimento || ''),\n    estado: String(dados.estado || '').trim(),\n    cidade: String(dados.cidade || '').trim(),\n    vidas: parseInt(dados.vidas, 10) || 1,\n    total_vidas: parseInt(dados.total_vidas ?? dados.vidas ?? 0, 10) || (parseInt(dados.vidas, 10) || 1),\n    mensagem: String(dados.mensagem || '').trim(),\n    timestamp: new Date().toISOString(),\n\n    // idade em dois campos porque o resto do fluxo usa ambos\n    idade: idadeCalculada,\n    idade_titular: idadeCalculada,\n\n    // novos campos suportados\n    cnpj_meses_ativo: dados.cnpj_meses_ativo ?? '',\n    tempo_plano_atual_meses: dados.tempo_plano_atual_meses ?? '',\n    tipo_contratacao: dados.tipo_contratacao ?? (dados.tipo || ''),\n    tem_preexistencia: dados.tem_preexistencia ?? '',\n    doenca_grave: dados.doenca_grave ?? '',\n    plano_atual: dados.plano_atual ?? '',\n\n    status: 'Novo - Aguardando IA',\n    classificacao: bucket.classificacao,\n    classificacao_inicial: bucket.classificacao,\n\n    score_bruto: bucket.score_bruto,\n    score: bucket.score,\n    score_inicial: bucket.score,\n\n    remarketing_data: '',\n    telefone_valido: Boolean(telefoneLimpo),\n    telefone_invalido: !telefoneLimpo,\n    dados_validos: Boolean(telefoneLimpo && String(dados.nome || '').trim().length > 2)\n  }];\n\n} catch (error) {\n  console.error('Erro ao processar dados iniciais:', error);\n  return [{\n    lead_id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,\n    nome: 'Erro no processamento',\n    email: '',\n    telefone: '',\n    telefone_limpo: '',\n    nascimento: '',\n    estado: '',\n    cidade: '',\n    vidas: 1,\n    mensagem: 'Erro ao processar dados iniciais',\n    timestamp: new Date().toISOString(),\n    idade: '',\n    idade_titular: '',\n    status: 'Erro - Dados Inválidos',\n    classificacao: 'Muito Baixa',\n    classificacao_inicial: 'Muito Baixa',\n    score: 0,\n    score_inicial: 0,\n    score_bruto: 0,\n    remarketing_data: '',\n    telefone_valido: false,\n    telefone_invalido: true,\n    dados_validos: false,\n    erro_processamento: error.message\n  }];\n}"
       },
       "id": "d3e3475e-dea1-4d93-9601-312d01a3ee45",
       "name": "Processar Dados Iniciais",
@@ -246,8 +246,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -287,8 +287,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -374,8 +374,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -415,8 +415,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -456,8 +456,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -497,8 +497,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -589,7 +589,8 @@
         "conditions": {
           "boolean": [
             {
-              "value1": "={{$json.telefone_invalido}}"
+              "value1": "={{$json.telefone_invalido}}",
+              "value2": true
             }
           ]
         }
@@ -611,8 +612,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -765,7 +766,8 @@
         "conditions": {
           "boolean": [
             {
-              "value1": "={{$json.telefone_invalido}}"
+              "value1": "={{$json.telefone_invalido}}",
+              "value2": true
             }
           ]
         }
@@ -784,7 +786,8 @@
         "conditions": {
           "boolean": [
             {
-              "value1": "={{$json.telefone_invalido}}"
+              "value1": "={{$json.telefone_invalido}}",
+              "value2": true
             }
           ]
         }
@@ -873,8 +876,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -910,36 +913,36 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "10jKc1GdqYdgEp2SBIyf6uYq8-kuMQTkAn7yd01yfNWw",
+          "value": "10jkc1GdqYdgEp2SBIYf6uYq8-kuMQTAn7yd01yfNWw",
           "mode": "list",
           "cachedResultName": "Leads-Qualificados_Bradesco",
-          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/10jKc1GdqYdgEp2SBIyf6uYq8-kuMQTkAn7yd01yfNWw/edit?usp=drivesdk"
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/10jKc1GdqYdgEp2SBIYf6uYq8-kuMQTAn7yd01yfNWw/edit?usp=drivesdk"
         },
-        "sheetName": "={{$json.vendedor?.leads_sheet_tab ?? 'Leads_Qualificados'}}",
+        "sheetName": "Leads_Qualificados",
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "Lead_ID": "={{$json.resumo_vendedor?.lead_id || $json.lead_id || 'ERRO_LEAD_ID'}}",
-            "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || 'ERRO_NOME'}}",
-            "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || 'ERRO_TELEFONE'}}",
-            "Email": "={{$json.resumo_vendedor?.email || $json.email || 'ERRO_EMAIL'}}",
-            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || 'ERRO_LOCAL'}}",
-            "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || 'ERRO_IDADE'}}",
-            "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || 1}}",
-            "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || 'Não informado'}}",
-            "Contratacao": "={{$json.resumo_vendedor?.tipo_contratacao || $json.tipo_contratacao || 'Individual'}}",
-            "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || 'Não informado'}}",
-            "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || 'Não possui'}}",
-            "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || 'Não informado'}}",
-            "Doenca_Grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || 'Não informado'}}",
-            "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || 'Média'}}",
-            "Score": "={{$json.resumo_vendedor?.score || $json.score || 50}}",
-            "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || 'Bradesco Nacional'}}",
-            "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || 'RG, CPF, Comprovante de Residência'}}",
-            "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || new Date().toISOString()}}",
-            "Status": "Qualificado - Aguardando Vendedor",
-            "Vendedor_Nome": "={{ $json.vendedor.nome || 'Não atribuído' }}",
-            "Observações_Mariana": "={{ $json.resumo_vendedor?.observacoes_mariana || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) }}"
+            "Lead_ID": "={{$json.resumo_vendedor?.lead_id || $json.lead_id || $json.Lead_ID || ''}}",
+            "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || $json.Nome || ''}}",
+            "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || $json.telefone_limpo || $json.Telefone || ''}}",
+            "Email": "={{$json.resumo_vendedor?.email || $json.email || $json.Email || ''}}",
+            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || $json.Cidade_Estado || ''}}",
+            "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || $json.Idade_Titular || ''}}",
+            "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || $json.Total_Vidas || 1}}",
+            "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || $json.Idades_Dependentes || 'Não informado'}}",
+            "Contratacao": "={{$json.resumo_vendedor?.tipo_contratacao || $json.tipo_contratacao || $json.Contratacao || 'Individual'}}",
+            "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || $json.Hospital_Preferencia || 'Não informado'}}",
+            "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || $json.Plano_Atual || 'Não possui'}}",
+            "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || $json.Preexistencia || 'Não informado'}}",
+            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || $json.Doenca_grave || 'Não informado'}}",
+            "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || $json.Classificacao || 'Média'}}",
+            "Score": "={{$json.resumo_vendedor?.score || $json.score || $json.Score || 50}}",
+            "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || $json.Plano_Sugerido || 'Bradesco Nacional'}}",
+            "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || $json.Documentos || 'RG, CPF, Comprovante de Residência'}}",
+            "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || $json.Data_Qualificacao || $now.toISO()}}",
+            "Status": "={{$json.status || $json.Status || 'Qualificado - Aguardando Vendedor'}}",
+            "Vendedor_Nome": "={{$json.vendedor?.nome || $json.vendedor_nome || $json.Vendedor_Nome || 'Não atribuído'}}",
+            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}"
           }
         },
         "options": {
@@ -959,8 +962,7 @@
           "id": "ZRCcorwTkMjhn6EC",
           "name": "Google Sheets account"
         }
-      },
-      "disabled": true
+      }
     },
     {
       "parameters": {
@@ -993,8 +995,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -1065,8 +1067,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -1103,34 +1105,38 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "1bGuTWcNCMjTed91deAZo8eGwy38tqWh8C7rU6PPG27M",
+          "value": "10jkc1GdqYdgEp2SBIYf6uYq8-kuMQTAn7yd01yfNWw",
           "mode": "list"
         },
         "sheetName": {
           "__rl": true,
-          "value": "Leads_Brutos",
+          "value": "Leads_Qualificados",
           "mode": "name"
         },
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "Lead_ID": "={{$json.lead_id}}",
-            "Nome Completo": "={{$json.nome}}",
-            "Telefone com DDD": "={{$json.telefone_limpo}}",
-            " E-mail": "={{$json.email}}",
-            "Data de Nascimento": "={{$json.nascimento}}",
-            "Estado": "={{$json.estado}}",
-            "Cidade": "={{$json.cidade}}",
-            "Número de Vidas": "={{$json.vidas}}",
-            " Mensagem": "={{$json.mensagem}}",
-            "Idade_Calculada": "={{$json.idade}}",
-            "Status": "={{$json.status}}",
-            " Classificacao_Inicial": "={{$json.classificacao_inicial}}",
-            " Score_Inicial": "={{$json.score_inicial}}",
-            " Data_Hora": "={{$json.timestamp}}",
-            " Remarketing_Data": "={{$json.remarketing_data}}",
-            "Ultima_Atividade": "={{$json.timestamp}}",
-            "Tentativas_Remarketing": "0"
+            "Lead_ID": "={{$json.lead_id || $json.Lead_ID || $json.id || $json.leadId || $json.lead_identifier || ''}}",
+            "Nome Completo": "={{$json.nome || $json['Nome Completo'] || $json.nome_completo || $json.name || $json.cliente_nome || ''}}",
+            "Telefone com DDD": "={{$json.telefone_limpo || $json.telefone || $json['Telefone com DDD'] || $json.phone || $json.celular || $json.whatsapp || ''}}",
+            " E-mail": "={{$json.email || $json[' E-mail'] || $json.e_mail || $json.cliente_email || $json.mail || ''}}",
+            "Data de Nascimento": "={{$json.nascimento || $json['Data de Nascimento'] || $json.data_nascimento || $json.birth_date || $json.aniversario || ''}}",
+            "Estado": "={{$json.estado || $json.Estado || $json.uf || $json.state || $json.regiao || ''}}",
+            "Cidade": "={{$json.cidade || $json.Cidade || $json.city || $json.municipio || $json.localidade || ''}}",
+            "Número de Vidas": "={{$json.vidas || $json.total_vidas || $json['Número de Vidas'] || $json.numero_vidas || $json.dependentes || $json.pessoas || 1}}",
+            " Mensagem": "={{$json.mensagem || $json[' Mensagem'] || $json.message || $json.texto || $json.observacao || $json.comentario || ''}}",
+            "Idade_Calculada": "={{$json.idade || $json.idade_titular || $json.Idade_Calculada || $json.age || $json.anos || ''}}",
+            "Status": "={{$json.status || $json.Status || $json.situacao || $json.estado_lead || 'Novo - Aguardando IA'}}",
+            " Classificacao_Inicial": "={{$json.classificacao_inicial || $json.classificacao || $json[' Classificacao_Inicial'] || $json.categoria || $json.tipo || 'Média'}}",
+            " Score_Inicial": "={{$json.score_inicial || $json.score || $json[' Score_Inicial'] || $json.pontuacao || $json.nota || 50}}",
+            " Data_Hora": "={{$json.timestamp || $json[' Data_Hora'] || $json.data_hora || $json.created_at || $json.data_criacao || $now.toISO()}}",
+            "Remarketing_Data": "={{$json.remarketing_data || $json.Remarketing_Data || $json.data_remarketing || $json.ultimo_contato || ''}}",
+            "Agendor_Person_ID": "={{$json.agendor_person_id || $json.Agendor_Person_ID || $json.person_id || $json.contato_id || ''}}",
+            "Agendor_Deal_ID": "={{$json.agendor_deal_id || $json.Agendor_Deal_ID || $json.deal_id || $json.negocio_id || ''}}",
+            "Agendor_Status": "={{$json.agendor_status || $json.Agendor_Status || $json.status_agendor || $json.situacao_crm || ''}}",
+            "Agendor_Sync": "={{$json.agendor_sync || $json.Agendor_Sync || $json.sincronizado || $json.data_sync || ''}}",
+            "Tentativas_Remarketing": "={{$json.tentativas_remarketing || $json.Tentativas_Remarketing || $json.tentativas || $json.contatos || 0}}",
+            "Ultima_Atividade": "={{$json.ultima_atividade || $json.Ultima_Atividade || $json.timestamp || $json.last_activity || $json.data_atividade || $now.toISO()}}"
           },
           "matchingColumns": [],
           "schema": [
@@ -1368,7 +1374,7 @@
               "lookupValue": "Novo - Aguardando IA"
             },
             {
-              "lookupColumn": "Data_Hora",
+              "lookupColumn": " Data_Hora",
               "lookupValue": "={{$now.minus(24,'hours').toISO()}}",
               "condition": "dateTimeBefore"
             },
@@ -1423,8 +1429,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -1486,10 +1492,10 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "Tentativas_Remarketing": "={{($json.Tentativas_Remarketing || 0) + 1}}",
-            "Proxima_Tentativa_Remarketing": "={{$now.plus(24,'hours').toISO()}}",
-            "Status": "={{($json.Tentativas_Remarketing || 0) >= 2 ? 'Arquivado_Sem_Resposta' : 'Novo - Aguardando IA'}}",
-            "Ultima_Tentativa_Remarketing": "={{$now.toISO()}}"
+            "Status": "={{($json.Tentativas_Remarketing || $json.tentativas_remarketing || $json.tentativas || 0) >= 2 ? 'Arquivado_Sem_Resposta' : 'Remarketing_Enviado'}}",
+            "Remarketing_Data": "={{$json.remarketing_data || $json.Remarketing_Data || $json.data_remarketing || $json.ultimo_contato || $now.toISO()}}",
+            "Tentativas_Remarketing": "={{($json.Tentativas_Remarketing || $json.tentativas_remarketing || $json.tentativas || $json.contatos || 0) + 1}}",
+            "Ultima_Atividade": "={{$json.ultima_atividade || $json.Ultima_Atividade || $json.timestamp || $json.last_activity || $json.data_atividade || $now.toISO()}}"
           },
           "matchingColumns": [
             "Lead_ID"
@@ -1665,7 +1671,7 @@
     },
     {
       "parameters": {
-        "jsCode": "/**\n * Sistema Rodízio Vendedores\n * - Escolhe vendedora disponível (com todos os serviços ok)\n * - Mantém rotação em storage\n * - Sempre envia CÓPIA para o Rodrigo (supervisão)\n * - Define campos vendedor.nome e vendedor.whatsapp\n */\n\nconst sd = $getWorkflowStaticData('global');\n\n// ====== CADASTRO DOS VENDEDORES (RODÍZIO ATIVO) ======\nconst vendedores = [\n  {\n    nome: 'Fabiana',\n    email: 'comercial@abmix.com.br',\n    whatsapp: '11971593900',\n    agendor_token: $env.AGENDOR_FABIANA,\n    leads_sheet_tab: 'Leads_Fabiana',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Juliana',\n    email: 'comercial6@abmix.com.br',\n    whatsapp: '11938020607',\n    agendor_token: $env.AGENDOR_JULIANA,\n    leads_sheet_tab: 'Leads_Juliana',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Monique',\n    email: 'comercial2@abmix.com.br',\n    whatsapp: '11945352603',\n    agendor_token: $env.AGENDOR_MONIQUE,\n    leads_sheet_tab: 'Leads_Monique',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Isabela',\n    email: 'comercial4@abmix.com.br',\n    whatsapp: '11953281647',\n    agendor_token: $env.AGENDOR_ISABELA,\n    leads_sheet_tab: 'Leads_Isabela',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Rodrigo',\n    email: 'supervisao@abmix.com.br',\n    whatsapp: '11996163900',\n    agendor_token: $env.AGENDOR_RODRIGO,\n    leads_sheet_tab: 'Leads_Rodrigo',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n];\n\n// ====== SUPERVISÃO (RECEBE TODOS) ======\nconst supervisor = {\n  nome: 'Rodrigo',\n  email: 'supervisao@abmix.com.br',\n  whatsapp: '11996163900',\n  recebe_todos: true,\n};\n\n// ====== FILTRAR QUEM ESTÁ COMPLETO ======\nconst ativos = vendedores.filter(v =>\n  v.planilha_ok && v.agendor_ok && v.gmail_ok && v.whatsapp_ok\n);\n\n// fallback: se ninguém completo, joga para o Rodrigo\nif (ativos.length === 0) {\n  return [{\n    ...$json,\n    vendedor_alvo: supervisor.nome,\n    vendedor_email: supervisor.email,\n    vendedor_whatsapp: supervisor.whatsapp,\n    \n    // Campos estruturados do vendedor\n    vendedor: {\n      nome: supervisor.nome,\n      email: supervisor.email,\n      whatsapp: supervisor.whatsapp\n    },\n    \n    enviar_copia_supervisor: false, // já é o próprio\n    supervisor_email: supervisor.email,\n    supervisor_whatsapp: supervisor.whatsapp,\n    rodada_atual: -1,\n    timestamp_distribuicao: new Date().toISOString()\n  }];\n}\n\n// ====== RODÍZIO ======\nconst idx = typeof sd.rodizio_idx === 'number' ? sd.rodizio_idx : -1;\nconst nextIdx = (idx + 1) % ativos.length;\nsd.rodizio_idx = nextIdx;\n\nconst escolhido = ativos[nextIdx];\n\n// ====== SAÍDA PADRONIZADA ======\nreturn [{\n  ...$json,\n  vendedor_alvo: escolhido.nome,\n  vendedor_email: escolhido.email,\n  vendedor_whatsapp: escolhido.whatsapp,\n  \n  // Campos estruturados do vendedor (OBRIGATÓRIO)\n  vendedor: {\n    nome: escolhido.nome,\n    email: escolhido.email,\n    whatsapp: escolhido.whatsapp,\n    agendor_token: escolhido.agendor_token,\n    leads_sheet_tab: escolhido.leads_sheet_tab\n  },\n  \n  // Supervisor sempre recebe cópia\n  enviar_copia_supervisor: true,\n  supervisor_email: supervisor.email,\n  supervisor_whatsapp: supervisor.whatsapp,\n  \n  rodada_atual: nextIdx,\n  timestamp_distribuicao: new Date().toISOString()\n}];"
+        "jsCode": "/**\n * Sistema Rodízio Vendedores\n * - Escolhe vendedora disponível (com todos os serviços ok)\n * - Mantém rotação em storage\n * - Sempre envia CÓPIA para o Rodrigo (supervisão)\n * - Define campos vendedor.nome e vendedor.whatsapp\n */\n\nconst sd = $getWorkflowStaticData('global');\n\n// ====== CADASTRO DOS VENDEDORES (RODÍZIO ATIVO) ======\nconst vendedores = [\n  {\n    nome: 'Fabiana',\n    email: 'comercial@abmix.com.br',\n    whatsapp: '11971593900',\n    agendor_token: '638d91d6-d527-4ab4-bbb4-8739b30b2d15',\n    leads_sheet_tab: 'Leads_Fabiana',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Juliana',\n    email: 'comercial6@abmix.com.br',\n    whatsapp: '11938020607',\n    agendor_token: 'f9d3388b-2842-4011-8031-21effa4f787b',\n    leads_sheet_tab: 'Leads_Juliana',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Monique',\n    email: 'comercial2@abmix.com.br',\n    whatsapp: '11945352603',\n    agendor_token: '8b8b5a47-6626-4db2-99b6-6b769c3742c5',\n    leads_sheet_tab: 'Leads_Monique',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Isabela',\n    email: 'comercial4@abmix.com.br',\n    whatsapp: '11953281647',\n    agendor_token: '6dd660a9-d4c1-436a-8528-b82e93157865',\n    leads_sheet_tab: 'Leads_Isabela',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n  {\n    nome: 'Rodrigo',\n    email: 'supervisao@abmix.com.br',\n    whatsapp: '11996163900',\n    agendor_token: '6f1f347a-4599-4148-84c7-a54dad6384d8',\n    leads_sheet_tab: 'Leads_Rodrigo',\n    planilha_ok: true,\n    agendor_ok: true,\n    gmail_ok: true,\n    whatsapp_ok: true,\n  },\n];\n\n// ====== SUPERVISÃO (RECEBE TODOS) ======\nconst supervisor = {\n  nome: 'Rodrigo',\n  email: 'supervisao@abmix.com.br',\n  whatsapp: '11996163900',\n  recebe_todos: true,\n};\n\n// ====== FILTRAR QUEM ESTÁ COMPLETO ======\nconst ativos = vendedores.filter(v =>\n  v.planilha_ok && v.agendor_ok && v.gmail_ok && v.whatsapp_ok\n);\n\n// fallback: se ninguém completo, joga para o Rodrigo\nif (ativos.length === 0) {\n  return [{\n    ...$json,\n    vendedor_alvo: supervisor.nome,\n    vendedor_email: supervisor.email,\n    vendedor_whatsapp: supervisor.whatsapp,\n    \n    // Campos estruturados do vendedor\n    vendedor: {\n      nome: supervisor.nome,\n      email: supervisor.email,\n      whatsapp: supervisor.whatsapp\n    },\n    \n    enviar_copia_supervisor: false, // já é o próprio\n    supervisor_email: supervisor.email,\n    supervisor_whatsapp: supervisor.whatsapp,\n    rodada_atual: -1,\n    timestamp_distribuicao: new Date().toISOString()\n  }];\n}\n\n// ====== RODÍZIO ======\nconst idx = typeof sd.rodizio_idx === 'number' ? sd.rodizio_idx : -1;\nconst nextIdx = (idx + 1) % ativos.length;\nsd.rodizio_idx = nextIdx;\n\nconst escolhido = ativos[nextIdx];\n\n// ====== SAÍDA PADRONIZADA ======\nreturn [{\n  ...$json,\n  vendedor_alvo: escolhido.nome,\n  vendedor_email: escolhido.email,\n  vendedor_whatsapp: escolhido.whatsapp,\n  \n  // Campos estruturados do vendedor (OBRIGATÓRIO)\n  vendedor: {\n    nome: escolhido.nome,\n    email: escolhido.email,\n    whatsapp: escolhido.whatsapp,\n    agendor_token: escolhido.agendor_token,\n    leads_sheet_tab: escolhido.leads_sheet_tab\n  },\n  \n  // Supervisor sempre recebe cópia\n  enviar_copia_supervisor: true,\n  supervisor_email: supervisor.email,\n  supervisor_whatsapp: supervisor.whatsapp,\n  \n  rodada_atual: nextIdx,\n  timestamp_distribuicao: new Date().toISOString()\n}];"
       },
       "id": "6b268da7-7d9a-4546-907d-3adc3c3a4124",
       "name": "Sistema Rodízio Vendedores",
@@ -1681,7 +1687,7 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "1bUg8Kqhl_4dhIy_unfqqBYqhV9ICrGyHu3muv0LW1Hk",
+          "value": "https://docs.google.com/spreadsheets/d/1bUg8Kqhl_4dhIy_unfqqBYqhV9ICrGyHu3muv0LW1Hk/edit?gid=0#gid=0",
           "mode": "url",
           "cachedResultName": "Leads_Rodrigo",
           "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1bUg8Kqhl_4dhIy_unfqqBYqhV9ICrGyHu3muv0LW1Hk/edit?gid=0#gid=0"
@@ -1690,30 +1696,27 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "Lead_ID": "={{$json.resumo_vendedor?.lead_id || $json.lead_id || 'ERRO_LEAD_ID'}}",
-            "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || 'ERRO_NOME'}}",
-            "Email": "={{$json.resumo_vendedor?.email || $json.email || 'ERRO_EMAIL'}}",
-            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || 'ERRO_LOCAL'}}",
-            "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || 'ERRO_IDADE'}}",
-            "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || 1}}",
-            "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || 'Não informado'}}",
-            "Contratacao": "={{$json.resumo_vendedor?.tipo_contratacao || $json.tipo_contratacao || 'Individual'}}",
-            "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || 'Não informado'}}",
-            "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || 'Não possui'}}",
-            "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || 'Não informado'}}",
-            "Doenca_Grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || 'Não informado'}}",
-            "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || 'Média'}}",
-            "Score": "={{$json.resumo_vendedor?.score || $json.score || 50}}",
-            "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || 'Bradesco Nacional'}}",
-            "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || 'RG, CPF, Comprovante de Residência'}}",
-            "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || new Date().toISOString()}}",
-            "Status": "Qualificado - Aguardando Vendedor",
-            "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || 'ERRO_TELEFONE'}}",
-            "Vendedor_Nome": "={{$json.vendedor.nome || 'Não atribuído'}}",
-            "Vendedor_Email": "={{$json.vendedor.email || 'Não informado'}}",
-            "Vendedor_Whats": "={{$json.vendedor.whatsapp || 'Não informado'}}",
-            "Cenario": "Fluxo Principal",
-            "Data_Registro": "={{$now.toISO()}}"
+            "Lead_ID": "={{$json.resumo_vendedor?.lead_id || $json.lead_id || $json.Lead_ID || ''}}",
+            "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || $json.Nome || ''}}",
+            "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || $json.telefone_limpo || $json.Telefone || ''}}",
+            "Email": "={{$json.resumo_vendedor?.email || $json.email || $json.Email || ''}}",
+            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || $json.Cidade_Estado || ''}}",
+            "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || $json.Idade_Titular || ''}}",
+            "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || $json.Total_Vidas || 1}}",
+            "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || $json.Idades_Dependentes || 'Não informado'}}",
+            "Contratacao": "={{$json.resumo_vendedor?.tipo_contratacao || $json.tipo_contratacao || $json.Contratacao || 'Individual'}}",
+            "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || $json.Hospital_Preferencia || 'Não informado'}}",
+            "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || $json.Plano_Atual || 'Não possui'}}",
+            "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || $json.Preexistencia || 'Não informado'}}",
+            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || $json.Doenca_grave || 'Não informado'}}",
+            "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || $json.Classificacao || 'Média'}}",
+            "Score": "={{$json.resumo_vendedor?.score || $json.score || $json.Score || 50}}",
+            "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || $json.Plano_Sugerido || 'Bradesco Nacional'}}",
+            "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || $json.Documentos || 'RG, CPF, Comprovante de Residência'}}",
+            "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || $json.Data_Qualificacao || $now.toISO()}}",
+            "Status": "={{$json.status || $json.Status || 'Qualificado - Aguardando Vendedor'}}",
+            "Vendedor_Nome": "={{$json.vendedor?.nome || $json.vendedor_nome || $json.Vendedor_Nome || 'Rodrigo'}}",
+            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}"
           }
         },
         "options": {"continueOnFail": true}
@@ -1732,7 +1735,7 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "19_5eBzI4Isek9ib_Tdsy_CzUj421IR7IReiHG2s77kA",
+          "value": "https://docs.google.com/spreadsheets/d/19_5eBzI4Isek9ib_Tdsy_CzUj421IR7IReiHG2s77kA/edit?usp=sharing",
           "mode": "url",
           "cachedResultName": "Leads_Fabiana",
           "cachedResultUrl": "https://docs.google.com/spreadsheets/d/19_5eBzI4Isek9ib_Tdsy_CzUj421IR7IReiHG2s77kA/edit?usp=sharing"
@@ -1741,26 +1744,27 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "Lead_ID": "={{$json.resumo_vendedor?.lead_id || $json.lead_id || 'ERRO_LEAD_ID'}}",
-            "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || 'ERRO_NOME'}}",
-            "Email": "={{$json.resumo_vendedor?.email || $json.email || 'ERRO_EMAIL'}}",
-            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || 'ERRO_LOCAL'}}",
-            "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || 'ERRO_IDADE'}}",
-            "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || 1}}",
-            "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || 'Não informado'}}",
-            "Contratacao": "={{$json.resumo_vendedor?.tipo_contratacao || $json.tipo_contratacao || 'Individual'}}",
-            "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || 'Não informado'}}",
-            "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || 'Não possui'}}",
-            "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || 'Não informado'}}",
-            "Doenca_Grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || 'Não informado'}}",
-            "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || 'Média'}}",
-            "Score": "={{$json.resumo_vendedor?.score || $json.score || 50}}",
-            "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || 'Bradesco Nacional'}}",
-            "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || 'RG, CPF, Comprovante de Residência'}}",
-            "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || new Date().toISOString()}}",
-            "Status": "Qualificado - Aguardando Vendedor",
-            "Vendedor_Nome": "={{ $json.vendedor.nome || 'Não atribuído' }}",
-            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || ''}}"
+            "Lead_ID": "={{$json.resumo_vendedor?.lead_id || $json.lead_id || $json.Lead_ID || ''}}",
+            "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || $json.Nome || ''}}",
+            "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || $json.telefone_limpo || $json.Telefone || ''}}",
+            "Email": "={{$json.resumo_vendedor?.email || $json.email || $json.Email || ''}}",
+            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || $json.Cidade_Estado || ''}}",
+            "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || $json.Idade_Titular || ''}}",
+            "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || $json.Total_Vidas || 1}}",
+            "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || $json.Idades_Dependentes || 'Não informado'}}",
+            "Contratacao": "={{$json.resumo_vendedor?.tipo_contratacao || $json.tipo_contratacao || $json.Contratacao || 'Individual'}}",
+            "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || $json.Hospital_Preferencia || 'Não informado'}}",
+            "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || $json.Plano_Atual || 'Não possui'}}",
+            "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || $json.Preexistencia || 'Não informado'}}",
+            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || $json.Doenca_grave || 'Não informado'}}",
+            "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || $json.Classificacao || 'Média'}}",
+            "Score": "={{$json.resumo_vendedor?.score || $json.score || $json.Score || 50}}",
+            "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || $json.Plano_Sugerido || 'Bradesco Nacional'}}",
+            "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || $json.Documentos || 'RG, CPF, Comprovante de Residência'}}",
+            "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || $json.Data_Qualificacao || $now.toISO()}}",
+            "Status": "={{$json.status || $json.Status || 'Qualificado - Aguardando Vendedor'}}",
+            "Vendedor_Nome": "={{$json.vendedor?.nome || $json.vendedor_nome || $json.Vendedor_Nome || 'Fabiana'}}",
+            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}"
           }
         },
         "options": {"continueOnFail": true}
@@ -1779,7 +1783,7 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "1I739og8MjuggQ_rJhrcyeDNGpkgzxLQ4Qim73Xy6MbU",
+          "value": "https://docs.google.com/spreadsheets/d/1I739og8MjuggQ_rJhrcyeDNGpkgzxLQ4Qim73Xy6MbU/edit?usp=sharing",
           "mode": "url",
           "cachedResultName": "Leads_Juliana",
           "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1I739og8MjuggQ_rJhrcyeDNGpkgzxLQ4Qim73Xy6MbU/edit?usp=sharing"
@@ -1788,27 +1792,27 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "Lead_ID": "={{$json.resumo_vendedor?.lead_id || $json.lead_id || 'ERRO_LEAD_ID'}}",
-            "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || 'ERRO_NOME'}}",
-            "Email": "={{$json.resumo_vendedor?.email || $json.email || 'ERRO_EMAIL'}}",
-            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || 'ERRO_LOCAL'}}",
-            "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || 'ERRO_IDADE'}}",
-            "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || 1}}",
-            "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || 'Não informado'}}",
-            "Contratacao": "={{$json.resumo_vendedor?.tipo_contratacao || $json.tipo_contratacao || 'Individual'}}",
-            "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || 'Não informado'}}",
-            "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || 'Não possui'}}",
-            "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || 'Não informado'}}",
-            "Doenca_Grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || 'Não informado'}}",
-            "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || 'Média'}}",
-            "Score": "={{$json.resumo_vendedor?.score || $json.score || 50}}",
-            "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || 'Bradesco Nacional'}}",
-            "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || 'RG, CPF, Comprovante de Residência'}}",
-            "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || new Date().toISOString()}}",
-            "Status": "Qualificado - Aguardando Vendedor",
-            "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || 'ERRO_TELEFONE'}}",
-            "Vendedor_Nome": "={{ $json.vendedor.nome || 'Não atribuído' }}",
-            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || ''}}"
+            "Lead_ID": "={{$json.resumo_vendedor?.lead_id || $json.lead_id || $json.Lead_ID || ''}}",
+            "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || $json.Nome || ''}}",
+            "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || $json.telefone_limpo || $json.Telefone || ''}}",
+            "Email": "={{$json.resumo_vendedor?.email || $json.email || $json.Email || ''}}",
+            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || $json.Cidade_Estado || ''}}",
+            "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || $json.Idade_Titular || ''}}",
+            "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || $json.Total_Vidas || 1}}",
+            "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || $json.Idades_Dependentes || 'Não informado'}}",
+            "Contratacao": "={{$json.resumo_vendedor?.tipo_contratacao || $json.tipo_contratacao || $json.Contratacao || 'Individual'}}",
+            "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || $json.Hospital_Preferencia || 'Não informado'}}",
+            "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || $json.Plano_Atual || 'Não possui'}}",
+            "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || $json.Preexistencia || 'Não informado'}}",
+            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || $json.Doenca_grave || 'Não informado'}}",
+            "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || $json.Classificacao || 'Média'}}",
+            "Score": "={{$json.resumo_vendedor?.score || $json.score || $json.Score || 50}}",
+            "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || $json.Plano_Sugerido || 'Bradesco Nacional'}}",
+            "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || $json.Documentos || 'RG, CPF, Comprovante de Residência'}}",
+            "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || $json.Data_Qualificacao || $now.toISO()}}",
+            "Status": "={{$json.status || $json.Status || 'Qualificado - Aguardando Vendedor'}}",
+            "Vendedor_Nome": "={{$json.vendedor?.nome || $json.vendedor_nome || $json.Vendedor_Nome || 'Juliana'}}",
+            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}"
           }
         },
         "options": {"continueOnFail": true}
@@ -1827,7 +1831,7 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "1rj7mWV6IkVrjVkAr0vFGW7IxtvPKF2JI6vZ42Uh8rcs",
+          "value": "https://docs.google.com/spreadsheets/d/1rj7mWV6IkVrjVkAr0vFGW7IxtvPKF2JI6vZ42Uh8rcs/edit?usp=sharing",
           "mode": "url",
           "cachedResultName": "Leads_Monique",
           "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1rj7mWV6IkVrjVkAr0vFGW7IxtvPKF2JI6vZ42Uh8rcs/edit?usp=sharing"
@@ -1836,27 +1840,27 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "Lead_ID": "={{$json.resumo_vendedor?.lead_id || $json.lead_id || 'ERRO_LEAD_ID'}}",
-            "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || 'ERRO_NOME'}}",
-            "Email": "={{$json.resumo_vendedor?.email || $json.email || 'ERRO_EMAIL'}}",
-            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || 'ERRO_LOCAL'}}",
-            "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || 'ERRO_IDADE'}}",
-            "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || 1}}",
-            "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || 'Não informado'}}",
-            "Contratacao": "={{$json.resumo_vendedor?.tipo_contratacao || $json.tipo_contratacao || 'Individual'}}",
-            "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || 'Não informado'}}",
-            "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || 'Não possui'}}",
-            "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || 'Não informado'}}",
-            "Doenca_Grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || 'Não informado'}}",
-            "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || 'Média'}}",
-            "Score": "={{$json.resumo_vendedor?.score || $json.score || 50}}",
-            "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || 'Bradesco Nacional'}}",
-            "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || 'RG, CPF, Comprovante de Residência'}}",
-            "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || new Date().toISOString()}}",
-            "Status": "Qualificado - Aguardando Vendedor",
-            "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || 'ERRO_TELEFONE'}}",
-            "Vendedor_Nome": "={{ $json.vendedor.nome || 'Não atribuído' }}",
-            "Observações_Mariana": "={{ $json.resumo_vendedor?.observacoes_mariana || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '') + ($json.hospital_preferencia && $json.hospital_preferencia !== 'Não informado' ? ((($json.mensagem_mariana || $json.mensagem_mariana_loop) ? ' | ' : '') + 'Hosp.: ' + $json.hospital_preferencia) : '') + ($json.tem_preexistencia && $json.tem_preexistencia !== 'Não informado' ? ' | Pré-existência: ' + $json.tem_preexistencia : '') + ($json.doenca_grave && $json.doenca_grave !== 'Não informado' ? ' | Doença grave: ' + $json.doenca_grave : '') + ($json.eh_portabilidade === true ? ' | Portabilidade: Sim' : '') }}"
+            "Lead_ID": "={{$json.resumo_vendedor?.lead_id || $json.lead_id || $json.Lead_ID || ''}}",
+            "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || $json.Nome || ''}}",
+            "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || $json.telefone_limpo || $json.Telefone || ''}}",
+            "Email": "={{$json.resumo_vendedor?.email || $json.email || $json.Email || ''}}",
+            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || $json.Cidade_Estado || ''}}",
+            "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || $json.Idade_Titular || ''}}",
+            "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || $json.Total_Vidas || 1}}",
+            "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || $json.Idades_Dependentes || 'Não informado'}}",
+            "Contratacao": "={{$json.resumo_vendedor?.tipo_contratacao || $json.tipo_contratacao || $json.Contratacao || 'Individual'}}",
+            "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || $json.Hospital_Preferencia || 'Não informado'}}",
+            "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || $json.Plano_Atual || 'Não possui'}}",
+            "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || $json.Preexistencia || 'Não informado'}}",
+            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || $json.Doenca_grave || 'Não informado'}}",
+            "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || $json.Classificacao || 'Média'}}",
+            "Score": "={{$json.resumo_vendedor?.score || $json.score || $json.Score || 50}}",
+            "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || $json.Plano_Sugerido || 'Bradesco Nacional'}}",
+            "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || $json.Documentos || 'RG, CPF, Comprovante de Residência'}}",
+            "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || $json.Data_Qualificacao || $now.toISO()}}",
+            "Status": "={{$json.status || $json.Status || 'Qualificado - Aguardando Vendedor'}}",
+            "Vendedor_Nome": "={{$json.vendedor?.nome || $json.vendedor_nome || $json.Vendedor_Nome || 'Monique'}}",
+            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}"
           }
         },
         "options": {"continueOnFail": true}
@@ -1875,7 +1879,7 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "1qpkW3YtDlTKD7XzDn3NaT2dTCDWAWWr7q6Wku5ufAq4",
+          "value": "https://docs.google.com/spreadsheets/d/1qpkW3YtDlTKD7XzDn3NaT2dTCDWAWWr7q6Wku5ufAq4/edit?usp=sharing",
           "mode": "url",
           "cachedResultName": "Leads_Isabela",
           "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qpkW3YtDlTKD7XzDn3NaT2dTCDWAWWr7q6Wku5ufAq4/edit?usp=sharing"
@@ -1884,27 +1888,27 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "Lead_ID": "={{$json.resumo_vendedor?.lead_id || $json.lead_id || 'ERRO_LEAD_ID'}}",
-            "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || 'ERRO_NOME'}}",
-            "Email": "={{$json.resumo_vendedor?.email || $json.email || 'ERRO_EMAIL'}}",
-            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || 'ERRO_LOCAL'}}",
-            "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || 'ERRO_IDADE'}}",
-            "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || 1}}",
-            "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || 'Não informado'}}",
-            "Contratacao": "={{$json.resumo_vendedor?.tipo_contratacao || $json.tipo_contratacao || 'Individual'}}",
-            "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || 'Não informado'}}",
-            "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || 'Não possui'}}",
-            "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || 'Não informado'}}",
-            "Doenca_Grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || 'Não informado'}}",
-            "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || 'Média'}}",
-            "Score": "={{$json.resumo_vendedor?.score || $json.score || 50}}",
-            "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || 'Bradesco Nacional'}}",
-            "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || 'RG, CPF, Comprovante de Residência'}}",
-            "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || new Date().toISOString()}}",
-            "Status": "Qualificado - Aguardando Vendedor",
-            "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || 'ERRO_TELEFONE'}}",
-            "Vendedor_Nome": "={{ $json.vendedor.nome || 'Não atribuído' }}",
-            "Observações_Mariana": "={{ $json.resumo_vendedor?.observacoes_mariana || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '') + ($json.hospital_preferencia && $json.hospital_preferencia !== 'Não informado' ? ((($json.mensagem_mariana || $json.mensagem_mariana_loop) ? ' | ' : '') + 'Hosp.: ' + $json.hospital_preferencia) : '') + ($json.tem_preexistencia && $json.tem_preexistencia !== 'Não informado' ? ' | Pré-existência: ' + $json.tem_preexistencia : '') + ($json.doenca_grave && $json.doenca_grave !== 'Não informado' ? ' | Doença grave: ' + $json.doenca_grave : '') + ($json.eh_portabilidade === true ? ' | Portabilidade: Sim' : '') }}"
+            "Lead_ID": "={{$json.resumo_vendedor?.lead_id || $json.lead_id || $json.Lead_ID || ''}}",
+            "Nome": "={{$json.resumo_vendedor?.nome || $json.nome || $json.Nome || ''}}",
+            "Telefone": "={{$json.resumo_vendedor?.telefone || $json.telefone || $json.telefone_limpo || $json.Telefone || ''}}",
+            "Email": "={{$json.resumo_vendedor?.email || $json.email || $json.Email || ''}}",
+            "Cidade_Estado": "={{$json.resumo_vendedor?.cidade_estado || ($json.cidade + '/' + $json.estado) || $json.Cidade_Estado || ''}}",
+            "Idade_Titular": "={{$json.resumo_vendedor?.idade_titular || $json.idade_titular || $json.idade || $json.Idade_Titular || ''}}",
+            "Total_Vidas": "={{$json.resumo_vendedor?.total_vidas || $json.total_vidas || $json.vidas || $json.Total_Vidas || 1}}",
+            "Idades_Dependentes": "={{$json.resumo_vendedor?.idades_dependentes || $json.idades_dependentes || $json.Idades_Dependentes || 'Não informado'}}",
+            "Contratacao": "={{$json.resumo_vendedor?.tipo_contratacao || $json.tipo_contratacao || $json.Contratacao || 'Individual'}}",
+            "Hospital_Preferencia": "={{$json.resumo_vendedor?.hospital_preferencia || $json.hospital_preferencia || $json.Hospital_Preferencia || 'Não informado'}}",
+            "Plano_Atual": "={{$json.resumo_vendedor?.plano_atual || $json.plano_atual || $json.Plano_Atual || 'Não possui'}}",
+            "Preexistencia": "={{$json.resumo_vendedor?.tem_preexistencia || $json.tem_preexistencia || $json.Preexistencia || 'Não informado'}}",
+            "Doenca_grave": "={{$json.resumo_vendedor?.doenca_grave || $json.doenca_grave || $json.Doenca_grave || 'Não informado'}}",
+            "Classificacao": "={{$json.resumo_vendedor?.classificacao || $json.classificacao || $json.Classificacao || 'Média'}}",
+            "Score": "={{$json.resumo_vendedor?.score || $json.score || $json.Score || 50}}",
+            "Plano_Sugerido": "={{$json.resumo_vendedor?.plano_sugerido || $json.plano_sugerido || $json.Plano_Sugerido || 'Bradesco Nacional'}}",
+            "Documentos": "={{$json.resumo_vendedor?.documentos_necessarios || $json.documentos_necessarios || $json.Documentos || 'RG, CPF, Comprovante de Residência'}}",
+            "Data_Qualificacao": "={{$json.resumo_vendedor?.timestamp_qualificacao || $json.timestamp_qualificacao || $json.Data_Qualificacao || $now.toISO()}}",
+            "Status": "={{$json.status || $json.Status || 'Qualificado - Aguardando Vendedor'}}",
+            "Vendedor_Nome": "={{$json.vendedor?.nome || $json.vendedor_nome || $json.Vendedor_Nome || 'Isabela'}}",
+            "Observações_Mariana": "={{$json.resumo_vendedor?.observacoes_mariana || $json.observacoes_mariana || $json['Observações_Mariana'] || (($json.mensagem_mariana ? ('Inicial: ' + $json.mensagem_mariana) : '') + ($json.mensagem_mariana_loop ? ((($json.mensagem_mariana ? ' | ' : '') + 'Loop: ' + $json.mensagem_mariana_loop)) : '')) || ''}}"
           }
         },
         "options": {"continueOnFail": true}
@@ -1927,7 +1931,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Token {{$credentials.agendorRodrigoApi.token}}"
+              "value": "Token token={{$json.vendedor.agendor_token}}"
             },
             {
               "name": "Content-Type",
@@ -1958,7 +1962,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Token {{$credentials.agendorFabianaApi.token}}"
+              "value": "Token token={{$json.vendedor.agendor_token}}"
             },
             {
               "name": "Content-Type",
@@ -1989,7 +1993,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Token {{$credentials.agendorJulianaApi.token}}"
+              "value": "Token token={{$json.vendedor.agendor_token}}"
             },
             {
               "name": "Content-Type",
@@ -2020,7 +2024,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Token {{$credentials.agendorMoniqueApi.token}}"
+              "value": "Token token={{$json.vendedor.agendor_token}}"
             },
             {
               "name": "Content-Type",
@@ -2051,7 +2055,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Token {{$credentials.agendorIsabelaApi.token}}"
+              "value": "Token token={{$json.vendedor.agendor_token}}"
             },
             {
               "name": "Content-Type",
@@ -2138,9 +2142,9 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "Status": "Aguardando_5min",
-            "Proxima_Acao_At": "={{$now.plus(5,'minutes').toISO()}}",
-            "Remarketing_Data": "Reengajamento_5min_agendado_{{$now.toISO()}}"
+            "Status": "={{$json.status || $json.Status || $json.situacao || $json.estado_lead || 'Aguardando_5min'}}",
+            "Remarketing_Data": "={{$json.remarketing_data || $json.Remarketing_Data || $json.data_remarketing || ('Reengajamento_5min_agendado_' + $now.toISO())}}",
+            "Ultima_Atividade": "={{$json.ultima_atividade || $json.Ultima_Atividade || $json.timestamp || $json.last_activity || $json.data_atividade || $now.toISO()}}"
           }
         },
         "options": {"continueOnFail": true}
@@ -2218,9 +2222,8 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "Status": "Em_Qualificacao",
-            "Ultima_Atividade": "={{$now.toISO()}}",
-            "Ultima_Resposta_Cliente": "={{$now.toISO()}}"
+            "Status": "={{$json.status || $json.Status || $json.situacao || $json.estado_lead || 'Em_Qualificacao'}}",
+            "Ultima_Atividade": "={{$json.ultima_atividade || $json.Ultima_Atividade || $json.timestamp || $json.last_activity || $json.data_atividade || $json.data_resposta || $now.toISO()}}"
           }
         },
         "options": {
@@ -2295,8 +2298,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -2326,8 +2329,8 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer C52FDF6831B2-439F-9F6A-C9E68962A705"
+              "name": "apikey",
+              "value": "C52FDF6831B2-439F-9F6A-C9E68962A705"
             },
             {
               "name": "Content-Type",
@@ -2721,7 +2724,7 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "={{$json.vendedor_sheet}}",
+          "value": "1bUg8Kqhl_4dhIy_unfqqBYqhV9ICrGyHu3muv0LW1Hk",
           "mode": "list"
         },
         "sheetName": {
@@ -2786,12 +2789,11 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "Lead_ID": "={{$json.Lead_ID}}",
-            "Agendor_Person_ID": "={{$node[\"👤 Upsert Pessoa Agendor\"].json.data.id || $json.person_id || $json.agendor_person_id || 'erro'}}",
-            "Agendor_Deal_ID": "={{$node[\"💼 Criar Deal\"].json.data.id || $node[\"💼 Atualizar Deal Stage\"].json.data.id || $json.deal_id || ''}}",
-            "Agendor_Sync": "={{$now.toISO()}}",
-            "Agendor_Status": "={{$json.error ? 'erro' : 'sincronizado'}}",
-            "Agendor_Stage": "={{$json.new_stage || $json.stage}}"
+            "Agendor_Person_ID": "={{$node[\"👤 Upsert Pessoa Agendor\"].json.data.id || $json.person_id || $json.agendor_person_id || $json.Agendor_Person_ID || $json.contato_id || 'erro'}}",
+            "Agendor_Deal_ID": "={{$node[\"💼 Criar Deal\"].json.data.id || $node[\"💼 Atualizar Deal Stage\"].json.data.id || $json.deal_id || $json.agendor_deal_id || $json.Agendor_Deal_ID || $json.negocio_id || ''}}",
+            "Agendor_Status": "={{$json.agendor_status || $json.Agendor_Status || $json.status_agendor || ($json.error ? 'erro' : 'sincronizado')}}",
+            "Agendor_Sync": "={{$json.agendor_sync || $json.Agendor_Sync || $json.sincronizado || $json.data_sync || $json.timestamp_sync || $now.toISO()}}",
+            "Ultima_Atividade": "={{$json.ultima_atividade || $json.Ultima_Atividade || $json.timestamp || $json.last_activity || $json.data_atividade || $now.toISO()}}"
           }
         },
         "options": {
@@ -3114,7 +3116,7 @@
       "main": [
         [
           {
-            "node": "Telefone Válido? (Cliente)",
+            "node": "Telefone Válido? (Webhook)",
             "type": "main",
             "index": 0
           },
@@ -3126,7 +3128,18 @@
         ],
         [
           {
-            "node": "Telefone Válido? (Cliente)",
+            "node": "Telefone Válido? (Webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telefone Válido? (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "É Áudio?",
             "type": "main",
             "index": 0
           }
