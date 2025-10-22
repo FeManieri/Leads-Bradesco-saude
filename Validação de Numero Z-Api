@@ -1,0 +1,438 @@
+{
+    "name": "Validação WhatsApp - Bradesco",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "de9760e8-6321-452c-90aa-9eb9e6009866",
+        "name": "🚀 Iniciar - Clique para validar WhatsApp",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          -1264,
+          160
+        ]
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "mode": "url",
+            "value": "https://docs.google.com/spreadsheets/d/1SHkwM2A02iuTLMnNbZj2Hq_BET8O-BPwks9VSbzrrxk"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "gid=0",
+            "mode": "list",
+            "cachedResultName": "Página1",
+            "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SHkwM2A02iuTLMnNbZj2Hq_BET8O-BPwks9VSbzrrxk/edit#gid=0"
+          },
+          "options": {
+            "dataLocationOnSheet": {
+              "values": {
+                "rangeDefinition": "detectAutomatically"
+              }
+            }
+          }
+        },
+        "id": "50ce9e27-d08b-4445-bfed-ac925f762238",
+        "name": "📋 Passo 1 - Ler todos contatos da planilha",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.4,
+        "position": [
+          -1056,
+          160
+        ],
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "6bd1TECz7NA8rZx3",
+            "name": "Google Sheets account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const items = $input.all();\nconst saida = [];\n\nlet contador = 1;\n\nfor (const it of items) {\n  let nome = String(it.json.nome ?? '').trim();\n  let numero = String(it.json.whatsapp ?? '').trim();\n  if (!numero) continue;\n\n  // limpa caracteres\n  let limpo = numero.replace(/[^\\d]/g, '');\n  // adiciona DDI 55 se faltar\n  if (!limpo.startsWith('55') && limpo.length >= 10) limpo = '55' + limpo;\n\n  if (limpo.length >= 11 && limpo.length <= 13) {\n    saida.push({\n      json: {\n        id: contador++,\n        nome,\n        whatsapp: limpo\n      }\n    });\n  }\n}\n\nconsole.log('Total de contatos válidos:', saida.length);\nreturn saida;"
+        },
+        "id": "fda5dbc5-7395-4107-a3d4-a723b4ec2e1b",
+        "name": "📦 Passo 2 - Limpar números e preparar para validação",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -928,
+          48
+        ]
+      },
+      {
+        "parameters": {
+          "batchSize": 1,
+          "options": {}
+        },
+        "id": "b79c422c-0efa-41c4-a17a-4a8953416545",
+        "name": "🔄 Passo 3 - Loop: processar cada lote separadamente",
+        "type": "n8n-nodes-base.splitInBatches",
+        "typeVersion": 3,
+        "position": [
+          -688,
+          -48
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "console.log(`Processando contato: ${$json.nome} - ${$json.whatsapp}`);\nreturn [$input.item];"
+        },
+        "id": "9a23576f-932d-47a8-9b91-b25f73920fc9",
+        "name": "📝 Passo 4 - Log: registrar contato sendo processado",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -416,
+          -64
+        ]
+      },
+       {
+         "parameters": {
+           "method": "POST",
+           "url": "https://api.z-api.io/instances/3E9123801B5B2122FFC2F6EC74C84D4B/token/1562578DC6F009ADC67AF7A4/validate-numbers-batch",
+           "sendHeaders": true,
+           "headerParameters": {
+             "parameters": [
+               {
+                 "name": "Content-Type",
+                 "value": "application/json"
+               },
+               {
+                 "name": "Client-Token",
+                 "value": "1562578DC6F009ADC67AF7A4"
+               }
+             ]
+           },
+           "sendBody": true,
+           "contentType": "json",
+           "body": "={ \"numbers\": [\"{{$json.whatsapp}}\"] }",
+           "options": {
+             "timeout": 120000,
+             "responseFormat": "json",
+             "ignoreResponseCode": true
+           }
+         },
+         "id": "34bf85ec-227a-4f7f-b13d-a06dd0a91127",
+         "name": "✅ Passo 5 - API: validar número no WhatsApp",
+         "type": "n8n-nodes-base.httpRequest",
+         "typeVersion": 4.2,
+         "position": [
+           -208,
+           -16
+         ]
+       },
+      {
+        "parameters": {
+          "jsCode": "const payload = $json;\n// Z-API pode retornar {results:[...]} ou um array direto\nconst arr = Array.isArray(payload) ? payload : (payload.results || payload.data || []);\n// Pega dados do item original (antes da chamada API)\nconst dadosOriginais = $('📝 Passo 4 - Log: registrar contato sendo processado').item.json;\n\nconst out = [];\nfor (const r of arr) {\n  const phone = r.outputPhone || r.phone || r.number || r.inputPhone;\n  const exists = Boolean(r.exists || r.valid);\n  out.push({ json: {\n    id: dadosOriginais.id,\n    whatsapp: dadosOriginais.whatsapp,\n    nome: dadosOriginais.nome,\n    whatsapp_ativo: exists ? 'SIM' : 'NÃO',\n    status: exists ? 'NOVO' : 'DESCARTAR',\n    observacao: exists ? 'Ativo validado' : 'Número inexistente',\n    validado_em: new Date().toISOString()\n  }});\n}\nreturn out;"
+        },
+        "id": "eb2cc620-169a-492d-8a95-fd0e6223d2f7",
+        "name": "🔍 Passo 6 - Processar resultado: SIM ou NÃO ativo",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          0,
+          16
+        ]
+      },
+      {
+        "parameters": {
+          "batchSize": 1000,
+          "options": {}
+        },
+        "id": "25d64ef4-cf76-491a-93ec-6909ae40cc8b",
+        "name": "✂️ Passo 7 - Dividir em lotes de 1000 para atualizar",
+        "type": "n8n-nodes-base.splitInBatches",
+        "typeVersion": 3,
+        "position": [
+          192,
+          16
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "update",
+          "documentId": {
+            "__rl": true,
+            "mode": "url",
+            "value": "https://docs.google.com/spreadsheets/d/1SHkwM2A02iuTLMnNbZj2Hq_BET8O-BPwks9VSbzrrxk"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "gid=0",
+            "mode": "list",
+            "cachedResultName": "Página1",
+            "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SHkwM2A02iuTLMnNbZj2Hq_BET8O-BPwks9VSbzrrxk/edit#gid=0"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "row_number": 0
+            },
+            "matchingColumns": [
+              "whatsapp"
+            ],
+            "schema": [
+              {
+                "id": "id",
+                "displayName": "id",
+                "required": false,
+                "defaultMatch": true,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true,
+                "removed": false
+              },
+              {
+                "id": "whatsapp",
+                "displayName": "whatsapp",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true,
+                "removed": false
+              },
+              {
+                "id": "nome",
+                "displayName": "nome",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "whatsapp_ativo",
+                "displayName": "whatsapp_ativo",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "status",
+                "displayName": "status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "data_envio",
+                "displayName": "data_envio",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "observacao",
+                "displayName": "observacao",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "row_number",
+                "displayName": "row_number",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "number",
+                "canBeUsedToMatch": true,
+                "readOnly": true,
+                "removed": false
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        },
+        "id": "57cddef4-5635-42ad-9d63-33c371b15f63",
+        "name": "💾 Passo 8 - Salvar resultado na planilha",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.4,
+        "position": [
+          400,
+          16
+        ],
+        "alwaysOutputData": true,
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "6bd1TECz7NA8rZx3",
+            "name": "Google Sheets account"
+          }
+        }
+      },
+      {
+        "parameters": {},
+        "id": "fd388ad8-1764-4e11-9d4b-1ee494cb6a66",
+        "name": "⏰ Passo 9 - Aguardar 5 segundos antes do próximo",
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          544,
+          160
+        ],
+        "webhookId": "webhook-wait-id"
+      },
+      {
+        "parameters": {
+          "jsCode": "let todos;\ntry {\n  todos = $('🔍 Passo 6 - Processar resultado lote: SIM ou NÃO ativo').all();\n  if (!Array.isArray(todos) || todos.length === 0) {\n    throw new Error(\"Nenhum dado encontrado no node de referência.\");\n  }\n} catch (err) {\n  return [{\n    json: {\n      erro: \"Node '🔍 Passo 6 - Processar resultado lote: SIM ou NÃO ativo' não foi executado ou não retornou dados.\",\n      detalhe: err.message,\n      concluido_em: new Date().toISOString()\n    }\n  }];\n}\n\nlet sim = 0, nao = 0;\nfor (let i of todos) {\n  if (i.json.whatsapp_ativo === 'SIM') sim++;\n  else nao++;\n}\n\nconst total = sim + nao;\nconst perc = total > 0 ? ((sim / total) * 100).toFixed(2) : 0;\nconst msg = `\n✅ VALIDAÇÃO CONCLUÍDA!\n━━━━━━━━━━━━━━━━━━━━━━\n📊 Total processado: ${total}\n✔️ WhatsApp ativo: ${sim}\n❌ WhatsApp inativo: ${nao}\n📈 Percentual ativo: ${perc}%\n🕒 Concluído em: ${new Date().toLocaleString('pt-BR')}\n`;\n\nconsole.log(msg);\n\nreturn [{\n  json: {\n    total,\n    sim,\n    nao,\n    perc,\n    relatorio: msg,\n    concluido_em: new Date().toISOString()\n  }\n}];"
+        },
+        "id": "44d051e8-83cb-496e-9cdf-1619e63895b5",
+        "name": "📊 Passo 10 - Gerar relatório final com estatísticas",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          752,
+          160
+        ]
+      }
+    ],
+    "pinData": {},
+    "connections": {
+      "🚀 Iniciar - Clique para validar WhatsApp": {
+        "main": [
+          [
+            {
+              "node": "📋 Passo 1 - Ler todos contatos da planilha",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "📋 Passo 1 - Ler todos contatos da planilha": {
+        "main": [
+          [
+            {
+              "node": "📦 Passo 2 - Limpar números e criar lotes de 5mil",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "📦 Passo 2 - Limpar números e criar lotes de 5mil": {
+        "main": [
+          [
+            {
+              "node": "🔄 Passo 3 - Loop: processar cada lote separadamente",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "🔄 Passo 3 - Loop: processar cada lote separadamente": {
+        "main": [
+          [
+            {
+              "node": "📝 Passo 4 - Log: registrar grupo sendo processado",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "📊 Passo 10 - Gerar relatório final com estatísticas",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "🔄 Passo 3 - Loop: processar cada lote separadamente",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "📝 Passo 4 - Log: registrar grupo sendo processado": {
+        "main": [
+          [
+            {
+              "node": "✅ Passo 5 - API: validar números no WhatsApp (Lote)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "✅ Passo 5 - API: validar números no WhatsApp (Lote)": {
+        "main": [
+          [
+            {
+              "node": "🔍 Passo 6 - Processar resultado lote: SIM ou NÃO ativo",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "🔍 Passo 6 - Processar resultado lote: SIM ou NÃO ativo": {
+        "main": [
+          [
+            {
+              "node": "✂️ Passo 7 - Dividir em lotes de 1000 para atualizar",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "✂️ Passo 7 - Dividir em lotes de 1000 para atualizar": {
+        "main": [
+          [
+            {
+              "node": "💾 Passo 8 - Salvar resultado na planilha",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "💾 Passo 8 - Salvar resultado na planilha": {
+        "main": [
+          [
+            {
+              "node": "⏰ Passo 9 - Aguardar 5 segundos antes do próximo",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "⏰ Passo 9 - Aguardar 5 segundos antes do próximo": {
+        "main": [
+          [
+            {
+              "node": "🔄 Passo 3 - Loop: processar cada lote separadamente",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "versionId": "d2642b0d-bc71-479e-a567-4b58eac88e22",
+    "meta": {
+      "templateCredsSetupCompleted": true,
+      "instanceId": "4727e7f30d147ce7ed4c5b239012c65105f64ef89a16fc3d825f9fec3507f155"
+    },
+    "id": "Ejq2QVPmq97LmypU",
+    "tags": []
+  }
